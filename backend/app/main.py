@@ -948,6 +948,26 @@ async def ml_score_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     return await asyncio.to_thread(score, packet, direction)
 
 
+@app.get("/api/ml/download")
+async def ml_download_endpoint():
+    """Serve the trained XGBoost .pkl artifact so the user can use the
+    screener out-of-band (research notebooks, paper publication, etc.)."""
+    from fastapi.responses import FileResponse
+    from app.ml_model import MODEL_PATH
+    import os as _os
+    if not _os.path.exists(MODEL_PATH):
+        raise HTTPException(status_code=404, detail="model_not_trained_yet")
+    return FileResponse(MODEL_PATH, media_type="application/octet-stream", filename="hedgyyyboo_trade_screener.pkl")
+
+
+@app.get("/api/llm/stats")
+async def llm_stats_endpoint() -> dict[str, Any]:
+    """Counter snapshot for the AI Models page.  In-memory only — resets
+    on backend restart."""
+    from app.llm_stats import snapshot
+    return snapshot()
+
+
 @app.post("/api/ml/backfill")
 async def ml_backfill_endpoint(years: int = Query(2, ge=1, le=5)) -> dict[str, Any]:
     """Walk ~2y of historical data for every watchlist symbol, simulate

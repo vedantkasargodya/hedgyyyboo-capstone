@@ -305,6 +305,7 @@ async def _llm_decide(
     """Ask Gemma-3n to decide BUY/SELL/HOLD given the full technical packet.
     Returns a structured dict with action, levels and rationale."""
     import os, json as _json, re, httpx
+    from app.llm_stats import record as _stats_record, Timer as _StatsTimer
     try:
         api_key = os.getenv("OPENROUTER_API_KEY", "")
         if not api_key or api_key.startswith("your_"):
@@ -328,19 +329,39 @@ async def _llm_decide(
             "max_tokens": 450,
             "temperature": 0.25,
         }
-        async with httpx.AsyncClient(timeout=45) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json=payload,
+        with _StatsTimer() as t:
+            async with httpx.AsyncClient(timeout=45) as client:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json=payload,
+                )
+        ok = resp.status_code == 200
+        data: dict[str, Any] = {}
+        if ok:
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+        usage = (data.get("usage") or {}) if isinstance(data, dict) else {}
+        content = ""
+        if ok:
+            try:
+                content = data["choices"][0]["message"]["content"]
+            except Exception:
+                content = ""
+        if not ok:
+            _stats_record(
+                endpoint=f"auto_pm:{desk}/{symbol}",
+                ok=False, status_code=resp.status_code, latency_ms=t.ms,
+                model="google/gemma-3n-e4b-it:free",
+                prompt_preview=prompt, error=resp.text[:160],
             )
-        if resp.status_code != 200:
             return {
                 "action": "HOLD",
                 "rationale": f"LLM {resp.status_code}: {resp.text[:120]}",
                 "confidence": 0.0, "entry_price": None, "stop_loss": None, "take_profit": None,
             }
-        content = resp.json()["choices"][0]["message"]["content"]
         # Extract the outer-most JSON object from whatever Gemma returns.
         m = re.search(r"\{[\s\S]*\}", content)
         if not m:
@@ -360,6 +381,16 @@ async def _llm_decide(
         action = str(parsed.get("action") or parsed.get("decision") or "HOLD").upper()
         if action not in {"BUY", "SELL", "HOLD"}:
             action = "HOLD"
+        _stats_record(
+            endpoint=f"auto_pm:{desk}/{symbol}",
+            ok=True, status_code=200, latency_ms=t.ms,
+            tokens_prompt=int(usage.get("prompt_tokens") or 0),
+            tokens_completion=int(usage.get("completion_tokens") or 0),
+            model="google/gemma-3n-e4b-it:free",
+            decision=action,
+            prompt_preview=prompt,
+            response_preview=content,
+        )
         return {
             "action": action,
             "confidence": float(parsed.get("confidence") or 0.0),
@@ -369,6 +400,15 @@ async def _llm_decide(
             "rationale":   str(parsed.get("rationale") or "").strip()[:400],
         }
     except Exception as exc:
+        try:
+            _stats_record(
+                endpoint=f"auto_pm:{desk}/{symbol}",
+                ok=False, status_code=None, latency_ms=0,
+                model="google/gemma-3n-e4b-it:free",
+                error=str(exc),
+            )
+        except Exception:
+            pass
         logger.warning("LLM decision failed: %s", exc)
         return {
             "action": "HOLD",
@@ -419,28 +459,16 @@ async def auto_pm_decision_cycle() -> dict[str, Any]:
     from app.signal_packet import build_signal_packet
     packet = await asyncio.to_thread(build_signal_packet, desk, symbol)
 
-    # ---- ML gate (before LLM call) ---------------------------------------
-    # Once the screener is trained on >= 50 closed trades, we skip Gemma
-    # entirely when P(pnl > 0) < 0.50 — that saves free-tier quota on
-    # obvious losers.  If the model isn't ready yet we pass through.
+    # ---- ML scoring (advisory only, NOT a gate) -------------------------
+    # Per product decision the ML model is a separate artifact used for
+    # research and export — it is NOT used to block trades here.  We still
+    # score and persist the probability so the analytics page can audit
+    # how the model would have behaved in hindsight.
     from app.ml_model import score as ml_score
     ml_result_long  = await asyncio.to_thread(ml_score, packet, "LONG")
     ml_result_short = await asyncio.to_thread(ml_score, packet, "SHORT")
     ml_prob_long  = ml_result_long.get("probability")  if ml_result_long.get("ready")  else None
     ml_prob_short = ml_result_short.get("probability") if ml_result_short.get("ready") else None
-    ml_best_prob  = max([p for p in (ml_prob_long, ml_prob_short) if p is not None], default=None)
-    if ml_best_prob is not None and ml_best_prob < 0.50:
-        logger.info(
-            "auto_pm ML_SKIP %s/%s — p_long=%.2f p_short=%.2f (both below 0.50)",
-            desk, symbol, ml_prob_long or 0, ml_prob_short or 0,
-        )
-        return {
-            "skipped": "ml_filter",
-            "desk": desk, "symbol": symbol,
-            "ml_probability_long": ml_prob_long,
-            "ml_probability_short": ml_prob_short,
-            "signal_packet": packet,
-        }
 
     # Ask the LLM in JSON mode, carrying the packet in the prompt
     portfolio_context = {

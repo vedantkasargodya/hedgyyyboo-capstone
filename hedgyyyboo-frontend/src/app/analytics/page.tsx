@@ -6,7 +6,7 @@ import {
   LineChart, Line, ResponsiveContainer,
   XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts';
-import { ArrowLeft, Brain, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Brain, RefreshCw, Download } from 'lucide-react';
 
 import TopBar from '@/components/TopBar';
 import Sidebar from '@/components/Sidebar';
@@ -410,7 +410,22 @@ function MLCard({
             <RefreshCw size={9} className={busy ? 'animate-spin' : ''} />
             RETRAIN
           </button>
+          <a
+            href={`${API}/api/ml/download`}
+            download
+            className={`px-2 py-0.5 rounded text-[8px] flex items-center gap-1 ${
+              status?.ready
+                ? 'bg-hf-amber/10 border border-hf-amber/40 text-hf-amber hover:bg-hf-amber/20'
+                : 'bg-terminal-dark/50 border border-terminal-border text-hf-dim pointer-events-none opacity-40'
+            }`}
+            title="Download the trained .pkl artifact"
+          >
+            <Download size={9} /> .PKL
+          </a>
         </div>
+      </div>
+      <div className="text-[8px] text-hf-dim italic mt-0.5">
+        Training-only artifact — NOT used to gate live trades.
       </div>
       {backfillSummary && (
         <div className="text-[9px] text-hf-amber mt-1 italic truncate">{backfillSummary}</div>

@@ -8,7 +8,6 @@ import {
   BarChart3,
   Brain,
   MessageSquare,
-  Settings,
   Percent,
   TrendingUp,
 } from 'lucide-react';
@@ -25,9 +24,8 @@ const navItems: NavItem[] = [
   { icon: Percent, label: 'Fixed Income & Rates', id: 'rates', href: '/fixed-income' },
   { icon: TrendingUp, label: 'FX Macro Desk', id: 'fx', href: '/fx-desk' },
   { icon: BarChart3, label: 'Analytics', id: 'analytics', href: '/analytics' },
-  { icon: Brain, label: 'AI Models', id: 'ai' },
+  { icon: Brain, label: 'AI Models', id: 'ai', href: '/ai-models' },
   { icon: MessageSquare, label: 'Research', id: 'research' },
-  { icon: Settings, label: 'Settings', id: 'settings' },
 ];
 
 export default function Sidebar() {
@@ -35,7 +33,8 @@ export default function Sidebar() {
   const activeFromPath =
     pathname === '/fixed-income' ? 'rates' :
     pathname === '/fx-desk'      ? 'fx' :
-    pathname === '/analytics'    ? 'analytics' : 'globe';
+    pathname === '/analytics'    ? 'analytics' :
+    pathname === '/ai-models'    ? 'ai' : 'globe';
   const [active, setActive] = useState(activeFromPath);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 

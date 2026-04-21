@@ -126,10 +126,29 @@ def start_scheduler():
         max_instances=1,
     )
 
+    # Every 6 hours — retrain the XGBoost trade screener if we have >= 50
+    # closed trades (live + historical).  Training is a no-op otherwise.
+    async def _retrain_ml():
+        try:
+            from app.ml_model import train
+            await asyncio.to_thread(train)
+        except Exception as exc:
+            logger.warning("ml retrain job failed: %s", exc)
+
+    _scheduler.add_job(
+        _retrain_ml,
+        "interval",
+        hours=6,
+        id="ml_retrain",
+        name="XGBoost screener periodic retrain",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     _scheduler.start()
     logger.info(
         "APScheduler started — morning note @08:00 IST, MTM every 60 s, "
-        "auto-PM every 60 s"
+        "auto-PM every 60 s, ML retrain every 6 h"
     )
 
 

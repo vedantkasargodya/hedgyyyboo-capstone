@@ -72,18 +72,49 @@ async def _rate_limited_llm_call(
         "X-Title": "Hedgyyyboo Research Terminal",
     }
 
+    from app.llm_stats import record as _stats_record, Timer as _StatsTimer
+    endpoint_label = f"rag_brain:{(user_prompt[:40] or 'query').splitlines()[0]}"[:80]
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(OPENROUTER_URL, json=payload, headers=headers)
-            _last_call_time = time.time()
-            if response.status_code != 200:
-                body = response.text[:300]
-                logger.error("OpenRouter %d: %s", response.status_code, body)
-                return f"[LLM error {response.status_code}: {body}]"
-            data = response.json()
-            content: str = data["choices"][0]["message"]["content"]
-            return content.strip()
+        with _StatsTimer() as t:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(OPENROUTER_URL, json=payload, headers=headers)
+        _last_call_time = time.time()
+        ok = response.status_code == 200
+        data = {}
+        if ok:
+            try:
+                data = response.json()
+            except Exception:
+                data = {}
+        usage = (data.get("usage") or {}) if isinstance(data, dict) else {}
+        content: str = ""
+        if ok:
+            try:
+                content = data["choices"][0]["message"]["content"]
+            except Exception:
+                content = ""
+        _stats_record(
+            endpoint=endpoint_label,
+            ok=ok, status_code=response.status_code,
+            latency_ms=t.ms,
+            tokens_prompt=int(usage.get("prompt_tokens") or 0),
+            tokens_completion=int(usage.get("completion_tokens") or 0),
+            model=MODEL,
+            prompt_preview=combined_prompt,
+            response_preview=content,
+            error=None if ok else response.text[:160],
+        )
+        if not ok:
+            body = response.text[:300]
+            logger.error("OpenRouter %d: %s", response.status_code, body)
+            return f"[LLM error {response.status_code}: {body}]"
+        return content.strip()
     except Exception as exc:
+        _stats_record(
+            endpoint=endpoint_label,
+            ok=False, status_code=None, latency_ms=0,
+            model=MODEL, prompt_preview=combined_prompt, error=str(exc),
+        )
         logger.error("OpenRouter call failed: %s", exc)
         return f"[LLM error: {exc}]"
 
