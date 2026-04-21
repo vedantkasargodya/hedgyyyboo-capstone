@@ -243,7 +243,7 @@ export default function Research() {
             <div style={{ height: 'calc(100% - 20px)', width: '100%' }}>
               <ComposableMap
                 projection="geoEqualEarth"
-                projectionConfig={{ scale: 240, center: [25, 25] }}
+                projectionConfig={{ scale: 420, center: [30, 30] }}
                 style={{ width: '100%', height: '100%' }}
               >
                 <Geographies geography={WORLD_TOPO_URL}>
