@@ -180,14 +180,14 @@ export default function Research() {
       <main className="ml-[60px] pt-[76px] px-3 pb-6">
         <div className="panel mb-3">
           <div className="panel-header accent-cyan flex items-center">
-            <Link href="/" className="flex items-center gap-1 text-hf-dim hover:text-hf-cyan text-[10px]">
-              <ArrowLeft size={12} /> DASHBOARD
+            <Link href="/" className="flex items-center gap-1 text-hf-dim hover:text-hf-cyan text-[12px]">
+              <ArrowLeft size={14} /> DASHBOARD
             </Link>
-            <span className="ml-4 text-hf-cyan font-bold tracking-widest">RESEARCH — MARINE AIS</span>
-            <span className="ml-2 text-hf-dim text-[9px]">/ live ship positions · chokepoint flows · LLM analyst</span>
-            <div className="ml-auto flex items-center gap-2 text-[9px]">
+            <span className="ml-4 text-hf-cyan font-bold tracking-widest text-[13px]">RESEARCH — MARINE AIS</span>
+            <span className="ml-2 text-hf-dim text-[11px]">/ live ship positions · chokepoint flows · LLM analyst</span>
+            <div className="ml-auto flex items-center gap-2 text-[11px]">
               <span
-                className={`inline-block w-1.5 h-1.5 rounded-full ${
+                className={`inline-block w-2 h-2 rounded-full ${
                   status?.connected ? 'bg-hf-green animate-pulse-dot' : 'bg-hf-red'
                 }`}
               />
@@ -201,8 +201,8 @@ export default function Research() {
 
         {!status?.key_present && (
           <div className="panel p-3 mb-3 border border-hf-amber/40">
-            <div className="text-[10px] text-hf-amber font-bold">AISSTREAM_KEY not set</div>
-            <div className="text-[10px] text-hf-dim mt-1">
+            <div className="text-[12px] text-hf-amber font-bold">AISSTREAM_KEY not set</div>
+            <div className="text-[12px] text-hf-dim mt-1">
               Get a free key at{' '}
               <a href="https://aisstream.io/authenticate" target="_blank" rel="noreferrer" className="text-hf-cyan underline">
                 aisstream.io/authenticate
@@ -224,19 +224,19 @@ export default function Research() {
 
         <div className="grid grid-cols-12 gap-2 mb-3">
           {/* Map + chokepoints */}
-          <div className="col-span-8 panel p-3" style={{ height: 520 }}>
+          <div className="col-span-8 panel p-3" style={{ height: 600 }}>
             <div className="flex items-center mb-2">
-              <MapPin size={12} className="text-hf-cyan" />
-              <span className="ml-1 text-[10px] tracking-widest text-hf-cyan">GLOBAL MARITIME MAP</span>
-              <div className="ml-auto text-[8px] text-hf-dim flex items-center gap-2">
+              <MapPin size={14} className="text-hf-cyan" />
+              <span className="ml-1 text-[12px] tracking-widest text-hf-cyan">GLOBAL MARITIME MAP</span>
+              <div className="ml-auto text-[11px] text-hf-dim flex items-center gap-3">
                 <span className="inline-flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-full bg-[#00ff9f]" /> underway
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#00ff9f]" /> underway
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-full bg-[#ffb020]" /> slow
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#ffb020]" /> slow
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-full bg-[#5a7ea4]" /> anchored
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#5a7ea4]" /> anchored
                 </span>
               </div>
             </div>
@@ -283,15 +283,16 @@ export default function Research() {
                       />
                       <circle r={2} fill="#00d4ff" />
                       <text
-                        y={-r - 3}
+                        y={-r - 4}
                         textAnchor="middle"
                         style={{
                           fontFamily: 'JetBrains Mono, monospace',
-                          fontSize: 7,
+                          fontSize: 10,
+                          fontWeight: 700,
                           fill: '#00d4ff',
                           paintOrder: 'stroke',
                           stroke: '#000',
-                          strokeWidth: 2,
+                          strokeWidth: 2.5,
                         }}
                       >
                         {c.name} ({c.count})
@@ -301,10 +302,10 @@ export default function Research() {
                 })}
 
                 {/* Ship dots (down-sample to 600 to keep SVG reasonable) */}
-                {ships.slice(0, 600).map((s) =>
+                {ships.slice(0, 800).map((s) =>
                   s.lat != null && s.lon != null ? (
                     <Marker key={s.mmsi} coordinates={[s.lon, s.lat]}>
-                      <circle r={1.1} fill={dotColour(s.speed_kn)} opacity={0.85} />
+                      <circle r={1.6} fill={dotColour(s.speed_kn)} opacity={0.9} />
                     </Marker>
                   ) : null
                 )}
@@ -313,29 +314,29 @@ export default function Research() {
           </div>
 
           {/* Chokepoint sidebar */}
-          <div className="col-span-4 panel p-3 flex flex-col" style={{ height: 520 }}>
+          <div className="col-span-4 panel p-3 flex flex-col" style={{ height: 600 }}>
             <div className="flex items-center mb-2 flex-shrink-0">
-              <Ship size={12} className="text-hf-amber" />
-              <span className="ml-1 text-[10px] tracking-widest text-hf-amber">CHOKEPOINT FLOWS</span>
-              <span className="ml-auto text-[8px] text-hf-dim">{chokepoints.length} zones</span>
+              <Ship size={14} className="text-hf-amber" />
+              <span className="ml-1.5 text-[12px] tracking-widest text-hf-amber">CHOKEPOINT FLOWS</span>
+              <span className="ml-auto text-[10px] text-hf-dim">{chokepoints.length} zones</span>
             </div>
             <div className="space-y-2 overflow-y-auto flex-1 pr-1">
               {chokepoints.map((c) => (
-                <div key={c.name} className="bg-terminal-dark/50 rounded p-2">
+                <div key={c.name} className="bg-terminal-dark/50 rounded p-2.5">
                   <div className="flex items-center">
-                    <span className="text-[11px] text-hf-white font-bold">{c.name}</span>
-                    <span className="ml-auto text-[11px] text-hf-cyan tabular-nums font-bold">{c.count}</span>
+                    <span className="text-[13px] text-hf-white font-bold">{c.name}</span>
+                    <span className="ml-auto text-[15px] text-hf-cyan tabular-nums font-bold">{c.count}</span>
                   </div>
-                  <div className="text-[9px] text-hf-dim mt-0.5">{c.description}</div>
+                  <div className="text-[11px] text-hf-dim mt-1">{c.description}</div>
                   {c.sample_ships.length > 0 && (
-                    <div className="text-[8px] text-hf-dim mt-1">
+                    <div className="text-[10px] text-hf-dim mt-1.5">
                       Sample: {c.sample_ships.map((sh) => sh.name || `MMSI type=${sh.type}`).join(', ')}
                     </div>
                   )}
                 </div>
               ))}
               {chokepoints.length === 0 && (
-                <div className="text-[10px] text-hf-dim text-center py-6">
+                <div className="text-[12px] text-hf-dim text-center py-6">
                   No chokepoint data yet. AIS feed needs a minute to populate.
                 </div>
               )}
@@ -344,10 +345,10 @@ export default function Research() {
         </div>
 
         {/* Chatbot */}
-        <div className="panel p-3" style={{ minHeight: 320 }}>
-          <div className="flex items-center mb-2">
-            <span className="text-[10px] tracking-widest text-hf-green">ASK THE MARINE ANALYST</span>
-            <span className="ml-2 text-[9px] text-hf-dim">
+        <div className="panel p-3" style={{ minHeight: 380 }}>
+          <div className="flex items-center mb-3">
+            <span className="text-[12px] tracking-widest text-hf-green">ASK THE MARINE ANALYST</span>
+            <span className="ml-2 text-[11px] text-hf-dim">
               Gemma-3n · grounded in live AIS + portfolio + news
             </span>
           </div>
@@ -358,19 +359,19 @@ export default function Research() {
                 <button
                   key={s}
                   onClick={() => sendChat(s)}
-                  className="text-left text-[10px] text-hf-dim hover:text-hf-green px-2 py-1.5 border border-terminal-border hover:border-hf-green/40 rounded bg-terminal-dark/30 transition-all"
+                  className="text-left text-[12px] text-hf-dim hover:text-hf-green px-3 py-2 border border-terminal-border hover:border-hf-green/40 rounded bg-terminal-dark/30 transition-all"
                 >
                   {s}
                 </button>
               ))}
             </div>
           ) : (
-            <div className="space-y-2 mb-3 max-h-[320px] overflow-y-auto pr-1">
+            <div className="space-y-2 mb-3 max-h-[360px] overflow-y-auto pr-1">
               {messages.map((m) => (
                 <div key={m.id} className={m.role === 'user' ? 'text-right' : 'text-left'}>
                   <div
                     className={
-                      'inline-block px-3 py-1.5 rounded text-[11px] max-w-[85%] whitespace-pre-wrap ' +
+                      'inline-block px-3 py-2 rounded text-[13px] max-w-[85%] whitespace-pre-wrap leading-relaxed ' +
                       (m.role === 'user'
                         ? 'bg-hf-cyan/15 border border-hf-cyan/40 text-hf-cyan'
                         : 'bg-terminal-dark border border-terminal-border text-hf-white')
@@ -390,14 +391,14 @@ export default function Research() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
               placeholder="Ask about ship flows, trade recommendations, supply-chain risk…"
-              className="flex-1 bg-terminal-dark border border-terminal-border rounded px-3 py-2 text-[11px] text-hf-white focus:outline-none focus:border-hf-green/40"
+              className="flex-1 bg-terminal-dark border border-terminal-border rounded px-3 py-2.5 text-[13px] text-hf-white focus:outline-none focus:border-hf-green/40"
             />
             <button
               onClick={() => sendChat()}
               disabled={sending || !input.trim()}
-              className="px-3 py-2 bg-hf-green/10 border border-hf-green/40 rounded text-[10px] text-hf-green hover:bg-hf-green/20 disabled:opacity-40 flex items-center gap-1"
+              className="px-4 py-2.5 bg-hf-green/10 border border-hf-green/40 rounded text-[12px] text-hf-green hover:bg-hf-green/20 disabled:opacity-40 flex items-center gap-1.5"
             >
-              {sending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+              {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
               SEND
             </button>
           </div>
@@ -410,9 +411,9 @@ export default function Research() {
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="panel p-3">
-      <div className="text-[9px] text-hf-dim tracking-widest">{label}</div>
-      <div className="text-xl font-bold text-hf-cyan tabular-nums truncate">{value}</div>
-      {sub && <div className="text-[9px] text-hf-dim mt-0.5 truncate">{sub}</div>}
+      <div className="text-[11px] text-hf-dim tracking-widest">{label}</div>
+      <div className="text-2xl font-bold text-hf-cyan tabular-nums truncate">{value}</div>
+      {sub && <div className="text-[11px] text-hf-dim mt-0.5 truncate">{sub}</div>}
     </div>
   );
 }
