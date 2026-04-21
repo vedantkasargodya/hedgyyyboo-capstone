@@ -10,16 +10,12 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
-from app.trade_ledger import get_all_trades, get_open_trades
+from app.paper_trades_model import list_trades
 
 logger = logging.getLogger("hedgyyyboo.portfolio")
 
-# Every FX paper trade assumes a 100k notional book slot (standard lot size).
-# This is the convention on the FX desk; when we add equity / rates trades we
-# will attach a per-trade notional to the ledger row.
-DEFAULT_FX_NOTIONAL_USD = 100_000.0
-# Seed cash the book starts with (the "21 M" had been hard-coded — we reduce
-# it to 1 M so the PnL number is actually meaningful against our trade sizes).
+# Seed cash the book starts with (previously hard-coded $21M which made
+# the PnL impossible to move).  $1M makes per-trade PnL visible.
 SEED_CASH_USD = 1_000_000.0
 
 
@@ -52,20 +48,18 @@ def _fetch_vix() -> float | None:
 
 def compute_portfolio_summary() -> dict[str, Any]:
     """The single source of truth for every stat card on the Main dashboard."""
-    open_trades = get_open_trades()
-    all_trades = get_all_trades(limit=500)
-    closed_trades = [t for t in all_trades if t.get("status") == "CLOSED"]
+    open_trades   = list_trades(status="OPEN")
+    closed_trades = list_trades(status="CLOSED")
+
+    # Per-desk concentration (for the drill-down widget + the risk score).
+    by_desk: dict[str, int] = {}
+    for t in open_trades:
+        by_desk[t["desk"]] = by_desk.get(t["desk"], 0) + 1
 
     # ----- AUM and gross exposure -----------------------------------------
-    gross_exposure = DEFAULT_FX_NOTIONAL_USD * len(open_trades)
-    unrealised_usd = sum(
-        DEFAULT_FX_NOTIONAL_USD * (t.get("pnl_pct") or 0.0) / 100.0
-        for t in open_trades
-    )
-    realised_usd = sum(
-        DEFAULT_FX_NOTIONAL_USD * (t.get("pnl_pct") or 0.0) / 100.0
-        for t in closed_trades
-    )
+    gross_exposure = sum((t.get("notional_usd") or 0.0) for t in open_trades)
+    unrealised_usd = sum((t.get("pnl_usd") or 0.0) for t in open_trades)
+    realised_usd   = sum((t.get("pnl_usd") or 0.0) for t in closed_trades)
     aum_usd = SEED_CASH_USD + realised_usd + unrealised_usd
 
     # ----- Realised Sharpe (approx, on closed trades) ---------------------
@@ -97,6 +91,7 @@ def compute_portfolio_summary() -> dict[str, Any]:
         "gross_exposure_usd": round(gross_exposure, 2),
         "open_positions": len(open_trades),
         "closed_trades": len(closed_trades),
+        "open_by_desk": by_desk,
         "unrealised_usd": round(unrealised_usd, 2),
         "realised_usd": round(realised_usd, 2),
         "unrealised_pct_of_aum": round(
@@ -107,8 +102,8 @@ def compute_portfolio_summary() -> dict[str, Any]:
         "vix": round(vix, 2) if vix is not None else None,
         "risk_score": risk_score,
         "assumptions": {
-            "fx_notional_per_trade_usd": DEFAULT_FX_NOTIONAL_USD,
             "seed_cash_usd": SEED_CASH_USD,
+            "notional_convention": "per-trade notional stored on each row of paper_trades",
             "sharpe_basis": "closed paper-trade returns, √252 annualisation",
             "alpha_status": "not computed — DXY benchmark wiring is pending",
         },

@@ -61,6 +61,26 @@ async def _run_morning_note():
         logger.error("Morning note cron failed: %s", exc, exc_info=True)
 
 
+async def _run_mark_and_manage() -> None:
+    """Trade-engine cron: mark every open position to market and apply
+    stop-loss / take-profit / time-stop rules.  Runs every 60 seconds."""
+    try:
+        from app.trade_engine import mark_and_manage_positions
+        await mark_and_manage_positions()
+    except Exception as exc:
+        logger.warning("mark_and_manage_positions failed: %s", exc, exc_info=True)
+
+
+async def _run_auto_pm_cycle() -> None:
+    """Trade-engine cron: ask Gemma-3n whether to open one new position.
+    Runs every 15 minutes — macro cadence, not HFT."""
+    try:
+        from app.trade_engine import auto_pm_decision_cycle
+        await auto_pm_decision_cycle()
+    except Exception as exc:
+        logger.warning("auto_pm_decision_cycle failed: %s", exc, exc_info=True)
+
+
 def start_scheduler():
     """Start the APScheduler with the morning note cron job."""
     global _scheduler
@@ -71,7 +91,7 @@ def start_scheduler():
 
     _scheduler = AsyncIOScheduler(timezone="Asia/Calcutta")
 
-    # Daily at 08:00 IST
+    # Daily at 08:00 IST — morning brief
     _scheduler.add_job(
         _run_morning_note,
         "cron",
@@ -82,8 +102,35 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Every 60 seconds — mark-to-market + stop-loss / take-profit / time-stop
+    _scheduler.add_job(
+        _run_mark_and_manage,
+        "interval",
+        seconds=60,
+        id="mark_and_manage",
+        name="Mark-to-market & close-rule evaluator",
+        replace_existing=True,
+        max_instances=1,        # avoid overlap if a cycle runs long
+    )
+
+    # Every 60 seconds — ask Gemma whether to open a new position.
+    # Strong natural brakes: concentration cap (<10), LLM-biased to HOLD,
+    # candidate picker skips already-held symbols → macro cadence in practice.
+    _scheduler.add_job(
+        _run_auto_pm_cycle,
+        "interval",
+        seconds=60,
+        id="auto_pm_cycle",
+        name="Auto-PM LLM decision cycle",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     _scheduler.start()
-    logger.info("APScheduler started — morning note cron at 08:00 IST daily")
+    logger.info(
+        "APScheduler started — morning note @08:00 IST, MTM every 60 s, "
+        "auto-PM every 60 s"
+    )
 
 
 def stop_scheduler():

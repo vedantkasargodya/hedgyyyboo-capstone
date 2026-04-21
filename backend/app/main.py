@@ -74,6 +74,14 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     except Exception as exc:
         logger.warning("Trade ledger init failed (non-critical): %s", exc)
 
+    # Initialize unified multi-desk paper_trades table and migrate
+    # legacy fx_paper_trades rows into it exactly once.
+    try:
+        from app.paper_trades_model import init_unified_table
+        init_unified_table()
+    except Exception as exc:
+        logger.warning("paper_trades init failed (non-critical): %s", exc)
+
     # Start Phase 4 morning note scheduler
     try:
         from app.scheduler import start_scheduler, stop_scheduler
@@ -820,6 +828,109 @@ async def fx_close_trade_endpoint(trade_id: int) -> dict[str, Any]:
     except Exception as exc:
         logger.error("Trade close failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Trade close failed: {exc}")
+
+
+# ============================================================================
+# UNIFIED MULTI-DESK TRADES — read/write the paper_trades table (FX + EQUITY + RATES)
+# ============================================================================
+
+class OpenTradeRequest(BaseModel):
+    desk: str                       # "FX" | "EQUITY" | "RATES"
+    symbol: str
+    direction: str                  # "LONG" | "SHORT"
+    notional_usd: float | None = None
+    rationale: str | None = None
+
+
+@app.get("/api/trades")
+async def trades_list_endpoint(
+    status: str | None = None,
+    desk: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Unified trade ledger across FX / Equity / Rates desks."""
+    try:
+        from app.paper_trades_model import list_trades
+        trades = list_trades(
+            status=status.upper() if status else None,
+            desk=desk.upper() if desk else None,
+            limit=limit,
+        )
+        return {"status": "ok", "count": len(trades), "trades": trades}
+    except Exception as exc:
+        logger.error("Unified trades fetch failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Trades fetch failed: {exc}")
+
+
+@app.post("/api/trades/open")
+async def trades_open_endpoint(body: OpenTradeRequest) -> dict[str, Any]:
+    """Manually open a position on any desk (button-driven from the UI)."""
+    try:
+        from app.paper_trades_model import insert_trade
+        from app.trade_engine import fetch_price
+        price = await asyncio.to_thread(fetch_price, body.desk.upper(), body.symbol)
+        if price is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot fetch live price for {body.desk}/{body.symbol}",
+            )
+        trade = insert_trade(
+            desk=body.desk.upper(),
+            symbol=body.symbol,
+            direction=body.direction.upper(),
+            entry_price=price,
+            notional_usd=body.notional_usd,
+            rationale=body.rationale or "manual user trade",
+            meta={"source": "ui_button"},
+        )
+        return {"status": "ok", "trade": trade}
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Trade open failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Trade open failed: {exc}")
+
+
+@app.post("/api/trades/{trade_id}/close")
+async def trades_close_endpoint(trade_id: int, reason: str = "MANUAL") -> dict[str, Any]:
+    """Close an open position at the current live market price."""
+    try:
+        from app.paper_trades_model import close_trade, get_trade
+        from app.trade_engine import fetch_price
+        current = get_trade(trade_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail=f"Trade #{trade_id} not found")
+        if current["status"] == "CLOSED":
+            return {"status": "ok", "trade": current, "note": "already closed"}
+        price = await asyncio.to_thread(fetch_price, current["desk"], current["symbol"])
+        if price is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot fetch live price to close {current['desk']}/{current['symbol']}",
+            )
+        result = close_trade(trade_id, price, reason=reason)
+        return {"status": "ok", "trade": result}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Trade close failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Trade close failed: {exc}")
+
+
+@app.post("/api/trades/run-cycle")
+async def trades_run_cycle_endpoint() -> dict[str, Any]:
+    """Manually trigger a single mark-and-manage pass + LLM decision cycle.
+    Useful for demos so you don't have to wait for the next cron tick."""
+    try:
+        from app.trade_engine import mark_and_manage_positions, auto_pm_decision_cycle
+        mtm = await mark_and_manage_positions()
+        dec = await auto_pm_decision_cycle()
+        return {"status": "ok", "mark_to_market": mtm, "auto_pm": dec}
+    except Exception as exc:
+        logger.exception("Manual cycle failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Manual cycle failed: {exc}")
 
 
 @app.post("/api/fx/trades/refresh-prices")

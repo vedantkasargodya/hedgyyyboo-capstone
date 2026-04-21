@@ -140,6 +140,68 @@ def classify_route(query: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Portfolio & market context — prepended to every PM query so the LLM
+# answers grounded in what we actually hold, not from generic priors.
+# ---------------------------------------------------------------------------
+
+
+def _format_open_positions_table(positions: list[dict[str, Any]]) -> str:
+    if not positions:
+        return "(book empty)"
+    lines = [
+        f"  [{p['desk']:6s}] {p['direction']:5s} {p['symbol']:10s} "
+        f"entry {p['entry_price']:.5f} · mark {p.get('current_price') or 0:.5f} · "
+        f"PnL {p.get('pnl_pct') or 0:+.2f}% (${p.get('pnl_usd') or 0:+.0f})"
+        for p in positions[:10]
+    ]
+    return "\n".join(lines)
+
+
+def build_context_block() -> str:
+    """Produce a short, plain-text block describing the current state of the
+    platform.  Injected at the top of every PM query so the LLM is never
+    stateless.  Gracefully skips sections that fail to load."""
+    parts: list[str] = []
+
+    # --- live portfolio ---
+    try:
+        from app.portfolio_summary import compute_portfolio_summary
+        from app.paper_trades_model import list_trades
+        p = compute_portfolio_summary()
+        open_pos = list_trades(status="OPEN", limit=20)
+        parts.append("PORTFOLIO:")
+        parts.append(
+            f"  AUM ${p['aum_usd']:,.0f} · seed ${p['seed_cash_usd']:,.0f} · "
+            f"open {p['open_positions']} / closed {p['closed_trades']} · "
+            f"unrealised ${p['unrealised_usd']:+,.0f} · realised ${p['realised_usd']:+,.0f} · "
+            f"risk {p['risk_score']}/100 · VIX {p.get('vix')}"
+        )
+        by = p.get("open_by_desk") or {}
+        if by:
+            parts.append(
+                "  by desk: "
+                + ", ".join(f"{k}={v}" for k, v in by.items())
+            )
+        parts.append("OPEN POSITIONS:")
+        parts.append(_format_open_positions_table(open_pos))
+    except Exception as exc:
+        parts.append(f"[portfolio context unavailable: {exc}]")
+
+    # --- latest news headlines ---
+    try:
+        from app.news_feed import fetch_news
+        headlines = fetch_news(category="all", limit=5) or []
+        if headlines:
+            parts.append("TOP HEADLINES:")
+            for h in headlines[:5]:
+                parts.append(f"  - {h.get('title') or ''}")
+    except Exception:
+        pass
+
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Route A: Derivatives / Risk
 # ---------------------------------------------------------------------------
 
@@ -193,14 +255,18 @@ async def _handle_derivatives(query: str) -> dict[str, Any]:
         context_parts.append(f"[Tail risk unavailable: {exc}]")
 
     context = "\n".join(context_parts)
-    user_prompt = f"Live derivatives data:\n{context}\n\nPM's question: {query}"
+    user_prompt = (
+        f"{build_context_block()}\n\n"
+        f"LIVE DERIVATIVES DATA:\n{context}\n\n"
+        f"PM's question: {query}"
+    )
 
     llm_response = await _rate_limited_llm_call(DERIVATIVES_SYSTEM, user_prompt)
 
     return {
         "route": "derivatives",
         "response": llm_response,
-        "data_sources": ["vol_surface", "garch_tail_risk"],
+        "data_sources": ["portfolio", "vol_surface", "garch_tail_risk"],
     }
 
 
@@ -254,7 +320,11 @@ async def _handle_fundamental(query: str) -> dict[str, Any]:
         context_parts.append(f"[Batch quotes unavailable: {exc}]")
 
     context = "\n".join(context_parts)
-    user_prompt = f"Live market data:\n{context}\n\nPM's question: {query}"
+    user_prompt = (
+        f"{build_context_block()}\n\n"
+        f"LIVE MARKET DATA (equities):\n{context}\n\n"
+        f"PM's question: {query}"
+    )
 
     llm_response = await _rate_limited_llm_call(FUNDAMENTAL_SYSTEM, user_prompt)
 
@@ -262,7 +332,7 @@ async def _handle_fundamental(query: str) -> dict[str, Any]:
         "route": "fundamental",
         "ticker": ticker,
         "response": llm_response,
-        "data_sources": ["stock_data", "batch_quotes"],
+        "data_sources": ["portfolio", "stock_data", "batch_quotes"],
     }
 
 
@@ -318,14 +388,18 @@ async def _handle_macro(query: str) -> dict[str, Any]:
         context_parts.append(f"[News unavailable: {exc}]")
 
     context = "\n".join(context_parts)
-    user_prompt = f"Macro analysis data:\n{context}\n\nPM's question: {query}"
+    user_prompt = (
+        f"{build_context_block()}\n\n"
+        f"MACRO ANALYSIS DATA:\n{context}\n\n"
+        f"PM's question: {query}"
+    )
 
     llm_response = await _rate_limited_llm_call(MACRO_SYSTEM, user_prompt)
 
     return {
         "route": "macro",
         "response": llm_response,
-        "data_sources": ["pca_analysis", "lda_analysis", "news_feed"],
+        "data_sources": ["portfolio", "pca_analysis", "lda_analysis", "news_feed"],
     }
 
 
