@@ -208,7 +208,7 @@ def close_trade(trade_id: int, exit_price: float, reason: str = CLOSE_MANUAL) ->
         if not t or t.status == "CLOSED":
             return None
         t.current_price = exit_price
-        t.pnl_pct, t.pnl_usd = _compute_pnl(t.direction, t.entry_price, exit_price, t.notional_usd)
+        t.pnl_pct, t.pnl_usd = _compute_pnl(t.direction, t.entry_price, exit_price, t.notional_usd, desk=t.desk)
         t.status = "CLOSED"
         t.close_reason = reason
         t.closed_at = datetime.now(timezone.utc)
@@ -228,17 +228,42 @@ def update_price(trade_id: int, current_price: float) -> dict[str, Any] | None:
         if not t or t.status == "CLOSED":
             return None
         t.current_price = current_price
-        t.pnl_pct, t.pnl_usd = _compute_pnl(t.direction, t.entry_price, current_price, t.notional_usd)
+        t.pnl_pct, t.pnl_usd = _compute_pnl(t.direction, t.entry_price, current_price, t.notional_usd, desk=t.desk)
         s.commit()
         s.refresh(t)
         return _row_to_dict(t)
 
 
-def _compute_pnl(direction: str, entry: float, current: float, notional: float) -> tuple[float, float]:
-    if direction == "LONG":
-        pct = (current - entry) / entry * 100.0
+def _compute_pnl(
+    direction: str,
+    entry: float,
+    current: float,
+    notional: float,
+    desk: str | None = None,
+) -> tuple[float, float]:
+    """Compute % and $ PnL.
+
+    For RATES we invert the sign because the Yahoo feed gives us the YIELD,
+    not the bond price.  LONG a bond = SHORT the yield: the trader profits
+    when the yield falls.  So for desk == RATES:
+        LONG  PnL  proportional to  (entry − current)    (not current − entry)
+        SHORT PnL  proportional to  (current − entry)
+
+    For FX and EQUITY the convention is unchanged:
+        LONG  PnL  proportional to  (current − entry)
+        SHORT PnL  proportional to  (entry − current)
+    """
+    if desk == DESK_RATES:
+        # Bond-price convention: long bond profits when yield falls.
+        if direction == "LONG":
+            pct = (entry - current) / entry * 100.0
+        else:
+            pct = (current - entry) / entry * 100.0
     else:
-        pct = (entry - current) / entry * 100.0
+        if direction == "LONG":
+            pct = (current - entry) / entry * 100.0
+        else:
+            pct = (entry - current) / entry * 100.0
     usd = pct / 100.0 * notional
     return round(pct, 4), round(usd, 2)
 

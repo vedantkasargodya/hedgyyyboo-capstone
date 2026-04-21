@@ -4,9 +4,28 @@ import { useState, useEffect, useCallback } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
+interface UnifiedTrade {
+  trade_id: number;
+  desk: string;
+  symbol: string;
+  direction: string;
+  notional_usd: number;
+  entry_price: number;
+  current_price: number | null;
+  pnl_pct: number;
+  pnl_usd: number;
+  rationale: string | null;
+  status: string;
+  close_reason: string | null;
+  opened_at: string | null;
+  closed_at: string | null;
+  meta: Record<string, unknown> | null;
+}
+
+// Adapt the unified schema to the view's expected shape.
 interface Trade {
   trade_id: number;
-  pair: string;
+  pair: string;                      // was pair on legacy, now symbol
   direction: string;
   entry_price: number;
   current_price: number | null;
@@ -22,6 +41,31 @@ interface Trade {
   hawkish_score: number | null;
 }
 
+function unifiedToView(t: UnifiedTrade): Trade {
+  const meta = (t.meta || {}) as Record<string, unknown>;
+  // auto-PM puts its signal_packet inside meta; legacy rows had these as top-level.
+  const sp = (meta.signal_packet as Record<string, unknown>) || {};
+  const ou = (sp.ou_mle as Record<string, unknown>) || {};
+  const hurst = (sp.hurst as Record<string, unknown>) || {};
+  return {
+    trade_id: t.trade_id,
+    pair: t.symbol,
+    direction: t.direction,
+    entry_price: t.entry_price,
+    current_price: t.current_price,
+    pnl_pct: t.pnl_pct,
+    ou_half_life: (meta.ou_half_life as number) ?? (ou.half_life_days as number) ?? null,
+    hurst_exponent: (meta.hurst_exponent as number) ?? (hurst.hurst as number) ?? null,
+    neural_sde_drift: (meta.neural_sde_drift as number) ?? null,
+    rationale: t.rationale,
+    status: t.status,
+    opened_at: t.opened_at,
+    closed_at: t.closed_at,
+    forex_factory_event: (meta.forex_factory_event as string) ?? null,
+    hawkish_score: (meta.hawkish_score as number) ?? null,
+  };
+}
+
 export default function TradeLedgerPanel() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,10 +75,16 @@ export default function TradeLedgerPanel() {
 
   const fetchTrades = useCallback(async () => {
     try {
-      const statusParam = filter === 'open' ? '?status=open' : '';
-      const res = await fetch(`${API}/api/fx/trades${statusParam}`);
+      // Unified endpoint, filtered to FX desk only.
+      const url = new URL(`${API}/api/trades`);
+      url.searchParams.set('desk', 'FX');
+      url.searchParams.set('limit', '100');
+      if (filter === 'open') url.searchParams.set('status', 'OPEN');
+      if (filter === 'closed') url.searchParams.set('status', 'CLOSED');
+      const res = await fetch(url.toString());
       const json = await res.json();
-      if (json.trades) setTrades(json.trades);
+      const raw: UnifiedTrade[] = json.trades || [];
+      setTrades(raw.map(unifiedToView));
     } catch (e) {
       console.error('Trade ledger fetch failed:', e);
     } finally {
@@ -42,37 +92,34 @@ export default function TradeLedgerPanel() {
     }
   }, [filter]);
 
-  // Auto-refresh: update prices then fetch trades every 30s
-  const autoRefresh = useCallback(async () => {
-    try {
-      await fetch(`${API}/api/fx/trades/refresh-prices`, { method: 'POST' }).catch(() => {});
-    } catch {}
-    await fetchTrades();
+  // Auto-refresh every 15s. Mark-to-market runs server-side every 60s,
+  // so we just re-read; no separate refresh-prices call needed.
+  useEffect(() => {
+    fetchTrades();
+    const iv = setInterval(fetchTrades, 15000);
+    return () => clearInterval(iv);
   }, [fetchTrades]);
 
-  useEffect(() => {
-    autoRefresh();
-    const iv = setInterval(autoRefresh, 30000);
-    return () => clearInterval(iv);
-  }, [autoRefresh]);
-
-  const refreshPrices = async () => {
-    try {
-      await fetch(`${API}/api/fx/trades/refresh-prices`, { method: 'POST' });
-      await fetchTrades();
-    } catch (e) {
-      console.error('Price refresh failed:', e);
-    }
-  };
+  const refreshPrices = fetchTrades;
 
   const executeNewTrade = async () => {
     setExecuting(true);
     try {
-      await fetch(`${API}/api/fx/execute`, {
+      // Manual BUY EUR/USD via the unified endpoint (FX 24x5 gating enforced on server).
+      const res = await fetch(`${API}/api/trades/open`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pair: 'EUR/USD' }),
+        body: JSON.stringify({
+          desk: 'FX',
+          symbol: 'EUR/USD',
+          direction: 'LONG',
+          rationale: 'Manual FX execute button on FX desk',
+        }),
       });
+      if (!res.ok) {
+        const body = await res.text();
+        console.error('Trade execute failed:', body);
+      }
       await fetchTrades();
     } catch (e) {
       console.error('Trade execution failed:', e);
@@ -83,7 +130,11 @@ export default function TradeLedgerPanel() {
 
   const closeTrade = async (tradeId: number) => {
     try {
-      await fetch(`${API}/api/fx/trades/${tradeId}/close`, { method: 'POST' });
+      const res = await fetch(`${API}/api/trades/${tradeId}/close?reason=MANUAL`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.text();
+        console.error(`Close trade #${tradeId} failed:`, body);
+      }
       await fetchTrades();
     } catch (e) {
       console.error('Trade close failed:', e);
