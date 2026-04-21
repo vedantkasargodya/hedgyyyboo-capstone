@@ -43,6 +43,7 @@ import TailRiskPanel from '@/components/TailRiskPanel';
 import MonteCarloPanel from '@/components/MonteCarloPanel';
 import AskPMChat from '@/components/AskPMChat';
 import MorningNotePanel from '@/components/MorningNotePanel';
+import PositionsPanel from '@/components/PositionsPanel';
 
 const Globe = dynamic(() => import('@/components/Globe'), {
   ssr: false,
@@ -260,6 +261,19 @@ export default function Dashboard() {
             style={{ animationDelay: '450ms' }}
           >
             <AIBriefPanel />
+          </div>
+        </div>
+
+        {/* Row 3.5: Live positions across every desk — the "what do we own?" row */}
+        <div
+          className="grid grid-cols-1 gap-2 mb-3"
+          style={{ height: '280px' }}
+        >
+          <div
+            className="animate-slide-up h-full overflow-hidden"
+            style={{ animationDelay: '475ms' }}
+          >
+            <PositionsPanel title="LIVE POSITIONS — ALL DESKS" maxRows={12} />
           </div>
         </div>
 

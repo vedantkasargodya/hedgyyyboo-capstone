@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import TradeButton from './TradeButton';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
@@ -196,6 +197,14 @@ export default function FXSpotPanel() {
                     {p.direction === 'up' ? '\u25B2 UP' : '\u25BC DOWN'}
                   </div>
                 </div>
+              </div>
+
+              {/* Trade buttons for the selected FX pair */}
+              <div className="mt-2 flex items-center justify-between gap-2 border-t border-terminal-border/40 pt-2">
+                <div className="text-[9px] text-hf-dim tracking-wider">
+                  TRADE · {p.pair}
+                </div>
+                <TradeButton desk="FX" symbol={p.pair} size="sm" />
               </div>
             </div>
           );

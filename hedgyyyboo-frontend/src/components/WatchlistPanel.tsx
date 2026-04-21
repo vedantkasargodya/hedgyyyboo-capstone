@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import TradeButton from './TradeButton';
 
 const API_BASE = 'http://localhost:8001';
 const TICKERS = 'AAPL,MSFT,NVDA,TSLA,AMZN,GOOGL,META,JPM,GS,BAC';
@@ -101,6 +102,9 @@ export default function WatchlistPanel() {
                 <th className="text-[9px] font-semibold text-hf-dim tracking-wider text-right px-3 py-1.5">
                   VOL
                 </th>
+                <th className="text-[9px] font-semibold text-hf-dim tracking-wider text-right px-3 py-1.5">
+                  TRADE
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -127,6 +131,9 @@ export default function WatchlistPanel() {
                     </td>
                     <td className="text-[10px] text-terminal-muted tabular-nums text-right px-3 py-1.5">
                       {formatVolume(q.volume)}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <TradeButton desk="EQUITY" symbol={q.symbol} />
                     </td>
                   </tr>
                 );

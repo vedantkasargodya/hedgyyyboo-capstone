@@ -14,6 +14,7 @@ import TradeLedgerPanel from '@/components/TradeLedgerPanel';
 import COTPanel from '@/components/COTPanel';
 import GDELTPanel from '@/components/GDELTPanel';
 import InterbankStressPanel from '@/components/InterbankStressPanel';
+import PositionsPanel from '@/components/PositionsPanel';
 
 const FXQuantPanel = dynamic(() => import('@/components/FXQuantPanel'), {
   ssr: false,
@@ -98,6 +99,13 @@ export default function FXDeskPage() {
           </div>
           <div className="animate-slide-up h-full overflow-hidden" style={{ animationDelay: '400ms' }}>
             <CBAnalysisPanel />
+          </div>
+        </div>
+
+        {/* Row 2.5: Live FX positions from the unified paper_trades table */}
+        <div className="grid grid-cols-1 gap-2 mb-3" style={{ height: '260px' }}>
+          <div className="animate-slide-up h-full overflow-hidden" style={{ animationDelay: '450ms' }}>
+            <PositionsPanel desk="FX" title="FX POSITIONS — LIVE" maxRows={10} />
           </div>
         </div>
 

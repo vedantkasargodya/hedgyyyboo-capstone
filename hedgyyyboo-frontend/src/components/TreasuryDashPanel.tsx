@@ -1,8 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import TradeButton from './TradeButton';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
+// Only these tenors have a Yahoo quote we can use for live pricing;
+// the backend's _yf_symbol() maps UST{n} -> ^TNX / ^FVX / ^TYX / ^IRX.
+const TRADEABLE_TENORS = new Set(['3M', '5Y', '10Y', '30Y']);
 
 interface FIData {
   yields: Record<string, number | null>;
@@ -147,9 +152,20 @@ export default function TreasuryDashPanel() {
         </div>
       </div>
 
-      {/* Mini chart */}
+      {/* Mini chart + trade buttons */}
       <div className="flex-1 relative min-h-0 px-2 flex flex-col">
-        <div className="text-[8px] text-hf-dim shrink-0">{selectedTenor} YIELD — 3M HISTORY</div>
+        <div className="flex items-center justify-between shrink-0">
+          <div className="text-[8px] text-hf-dim">{selectedTenor} YIELD — 3M HISTORY</div>
+          {TRADEABLE_TENORS.has(selectedTenor) ? (
+            <TradeButton
+              desk="RATES"
+              symbol={`UST${selectedTenor}`}
+              rationale={`Manual RATES trade on UST${selectedTenor}`}
+            />
+          ) : (
+            <span className="text-[8px] text-hf-dim tracking-wider">not tradeable · select 3M/5Y/10Y/30Y</span>
+          )}
+        </div>
         <div className="flex-1 min-h-0 relative">
           <canvas ref={chartRef} className="absolute inset-0 w-full h-full" />
         </div>

@@ -12,6 +12,7 @@ import TreasuryDashPanel from '@/components/TreasuryDashPanel';
 import YieldCurvePanel from '@/components/YieldCurvePanel';
 import YieldPCAPanel from '@/components/YieldPCAPanel';
 import RatesBriefPanel from '@/components/RatesBriefPanel';
+import PositionsPanel from '@/components/PositionsPanel';
 
 const SwaptionPanel = dynamic(() => import('@/components/SwaptionPanel'), {
   ssr: false,
@@ -90,6 +91,13 @@ export default function FixedIncomePage() {
           </div>
           <div className="animate-slide-up h-full overflow-hidden" style={{ animationDelay: '400ms' }}>
             <RatesBriefPanel />
+          </div>
+        </div>
+
+        {/* Row 3: Live rates positions */}
+        <div className="grid grid-cols-1 gap-2 mb-3" style={{ height: '260px' }}>
+          <div className="animate-slide-up h-full overflow-hidden" style={{ animationDelay: '500ms' }}>
+            <PositionsPanel desk="RATES" title="RATES POSITIONS — LIVE" maxRows={10} />
           </div>
         </div>
 
