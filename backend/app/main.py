@@ -89,6 +89,25 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     except Exception as exc:
         logger.warning("AIS consumer init failed (non-critical): %s", exc)
 
+    # Pre-warm GDELT in a background thread so the FX desk doesn't pay
+    # the 60-90s cold-call cost on first load.
+    try:
+        from app.gdelt_geo import prewarm_gdelt_background
+        prewarm_gdelt_background()
+    except Exception as exc:
+        logger.warning("GDELT pre-warm failed (non-critical): %s", exc)
+
+    # Persistent LLM call log + rehydrate in-memory counters from disk so
+    # the AI Models page doesn't start empty on every restart.
+    try:
+        from app.llm_stats import init_log_table, rehydrate_from_db
+        init_log_table()
+        n = rehydrate_from_db()
+        if n:
+            logger.info("LLM stats: rehydrated %d historical calls from SQLite.", n)
+    except Exception as exc:
+        logger.warning("LLM log table init failed (non-critical): %s", exc)
+
     # Start Phase 4 morning note scheduler
     try:
         from app.scheduler import start_scheduler, stop_scheduler

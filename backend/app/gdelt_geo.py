@@ -26,9 +26,13 @@ import numpy as np
 
 logger = logging.getLogger("hedgyyyboo.gdelt_geo")
 
-# In-memory cache to avoid 429 rate limits
+# In-memory cache.  TTL is intentionally long because GDELT rate-limits
+# aggressively and the payload doesn't meaningfully change faster than
+# every ~30 minutes anyway.  A background pre-warm fills the cache on
+# startup so the first UI load is instant.
 _gdelt_cache: dict[str, Any] = {"data": None, "fetched_at": 0.0}
-_GDELT_CACHE_TTL = 600  # 10 minutes
+_GDELT_CACHE_TTL = 1800       # 30 minutes
+_GDELT_REFRESHING = False     # simple single-flight lock
 
 # ---------------------------------------------------------------------------
 # GDELT Configuration
@@ -200,11 +204,24 @@ def compute_geopolitical_stress_index() -> dict[str, Any]:
 
     Index: 0 (calm) to 100 (extreme stress)
     """
-    # Return cached data if fresh enough
+    # Return cached data if fresh enough.  Also serve stale cached data
+    # immediately if we have any — GDELT can take 60-90 s on a cold call
+    # and the UI shouldn't block on it.  Caller may trigger
+    # refresh_gdelt_in_background() after receiving stale data.
+    global _GDELT_REFRESHING
     now = _time.time()
-    if _gdelt_cache["data"] is not None and (now - _gdelt_cache["fetched_at"]) < _GDELT_CACHE_TTL:
-        logger.info("GDELT: returning cached data (age %.0fs)", now - _gdelt_cache["fetched_at"])
+    age = now - _gdelt_cache["fetched_at"]
+    if _gdelt_cache["data"] is not None and age < _GDELT_CACHE_TTL:
+        logger.info("GDELT: returning cached data (age %.0fs)", age)
         return _gdelt_cache["data"]
+
+    # Single-flight: only one caller computes; others get stale-with-note.
+    if _GDELT_REFRESHING and _gdelt_cache["data"] is not None:
+        logger.info("GDELT: refresh already in flight — serving stale (age %.0fs)", age)
+        out = dict(_gdelt_cache["data"])
+        out["_stale"] = True
+        return out
+    _GDELT_REFRESHING = True
 
     results = []
     total_stress = 0
@@ -327,4 +344,23 @@ def compute_geopolitical_stress_index() -> dict[str, Any]:
         _gdelt_cache["data"] = output
         _gdelt_cache["fetched_at"] = _time.time()
 
+    global _GDELT_REFRESHING
+    _GDELT_REFRESHING = False
     return output
+
+
+def prewarm_gdelt_background() -> None:
+    """Kick a background thread to populate the cache at startup so the
+    first FX-desk load doesn't pay the 60-90s GDELT round-trip."""
+    import threading
+    def _run():
+        try:
+            logger.info("GDELT: pre-warming cache in background...")
+            compute_geopolitical_stress_index()
+            logger.info("GDELT: pre-warm complete.")
+        except Exception as exc:
+            logger.warning("GDELT pre-warm failed: %s", exc)
+            global _GDELT_REFRESHING
+            _GDELT_REFRESHING = False
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
