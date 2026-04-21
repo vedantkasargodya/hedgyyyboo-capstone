@@ -27,7 +27,7 @@ from typing import Any
 import yfinance as yf
 
 from app.paper_trades_model import (
-    CLOSE_STOP_LOSS, CLOSE_TAKE_PROFIT, CLOSE_TIME_STOP,
+    CLOSE_STOP_LOSS, CLOSE_TAKE_PROFIT, CLOSE_TIME_STOP, CLOSE_TRAIL_STOP,
     DESK_EQUITY, DESK_FX, DESK_RATES, DESK_RULES,
     close_trade, insert_trade, list_trades, update_price,
 )
@@ -136,23 +136,52 @@ def _days_held(opened_at_iso: str | None) -> float:
     return (datetime.now(timezone.utc) - opened).total_seconds() / 86400.0
 
 
+# Desk-specific activation threshold and trail distance for the trailing
+# stop, expressed as %.  Once cumulative PnL crosses ``activate``, the stop
+# is raised to (peak - trail).  A subsequent dip below that level closes
+# the trade with reason TRAIL_STOP and LOCKS IN the realised profit.
+TRAIL_PARAMS: dict[str, tuple[float, float]] = {
+    DESK_FX:     (0.40, 0.20),   # activate at +0.40%, trail 0.20%
+    DESK_EQUITY: (1.50, 0.75),   # activate at +1.50%, trail 0.75%
+    DESK_RATES:  (0.30, 0.15),   # activate at +0.30%, trail 0.15%
+}
+
+
 def evaluate_close_rules(trade: dict[str, Any]) -> str | None:
-    """Return a CLOSE_* reason if any rule fires for this trade, else None."""
+    """Return a CLOSE_* reason if any rule fires for this trade, else None.
+
+    Evaluation order (first hit wins):
+        1. Hard stop-loss  (desk-specific absolute -%)
+        2. Hard take-profit (desk-specific absolute +%)
+        3. Trailing stop    (once activated, close if pnl dips trail below peak)
+        4. Time stop        (max hold OR 1-day-of-no-progress)
+    """
     desk  = trade["desk"]
     rules = DESK_RULES.get(desk, DESK_RULES[DESK_FX])
     pnl   = trade.get("pnl_pct") or 0.0
 
+    # 1. hard stop
     if pnl <= rules["stop_loss_pct"]:
         return CLOSE_STOP_LOSS
+    # 2. hard take-profit
     if pnl >= rules["take_profit_pct"]:
         return CLOSE_TAKE_PROFIT
 
+    # 3. trailing stop — armed only after the trade has crossed the
+    #    activation threshold for its desk.
+    meta = trade.get("meta") or {}
+    peak = float(meta.get("peak_pnl_pct") or 0.0)
+    activate, trail = TRAIL_PARAMS.get(desk, TRAIL_PARAMS[DESK_FX])
+    if peak >= activate and (peak - pnl) >= trail:
+        return CLOSE_TRAIL_STOP
+
+    # 4. time stop
     held = _days_held(trade.get("opened_at"))
     if held >= rules["max_hold_days"]:
         return CLOSE_TIME_STOP
-
-    # Time stop variant: 3+ days with <0.5% progress means regime is wrong.
-    if held >= 3.0 and pnl < 0.5:
+    # tightened: 1 day of no progress closes the trade — a macro thesis
+    # that hasn't started working in a full session is probably wrong.
+    if held >= 1.0 and pnl < 0.3:
         return CLOSE_TIME_STOP
     return None
 
@@ -390,6 +419,29 @@ async def auto_pm_decision_cycle() -> dict[str, Any]:
     from app.signal_packet import build_signal_packet
     packet = await asyncio.to_thread(build_signal_packet, desk, symbol)
 
+    # ---- ML gate (before LLM call) ---------------------------------------
+    # Once the screener is trained on >= 50 closed trades, we skip Gemma
+    # entirely when P(pnl > 0) < 0.50 — that saves free-tier quota on
+    # obvious losers.  If the model isn't ready yet we pass through.
+    from app.ml_model import score as ml_score
+    ml_result_long  = await asyncio.to_thread(ml_score, packet, "LONG")
+    ml_result_short = await asyncio.to_thread(ml_score, packet, "SHORT")
+    ml_prob_long  = ml_result_long.get("probability")  if ml_result_long.get("ready")  else None
+    ml_prob_short = ml_result_short.get("probability") if ml_result_short.get("ready") else None
+    ml_best_prob  = max([p for p in (ml_prob_long, ml_prob_short) if p is not None], default=None)
+    if ml_best_prob is not None and ml_best_prob < 0.50:
+        logger.info(
+            "auto_pm ML_SKIP %s/%s — p_long=%.2f p_short=%.2f (both below 0.50)",
+            desk, symbol, ml_prob_long or 0, ml_prob_short or 0,
+        )
+        return {
+            "skipped": "ml_filter",
+            "desk": desk, "symbol": symbol,
+            "ml_probability_long": ml_prob_long,
+            "ml_probability_short": ml_prob_short,
+            "signal_packet": packet,
+        }
+
     # Ask the LLM in JSON mode, carrying the packet in the prompt
     portfolio_context = {
         "open_positions_in_book": len(open_trades),
@@ -433,6 +485,8 @@ async def auto_pm_decision_cycle() -> dict[str, Any]:
             "llm_take_profit": decision.get("take_profit"),
             "live_price_at_decision": price,
             "signal_packet": packet,
+            "ml_probability_long":  ml_prob_long,
+            "ml_probability_short": ml_prob_short,
         },
     )
     return {"action": decision["action"], "trade": trade, "packet_summary_keys": list(packet.keys())}

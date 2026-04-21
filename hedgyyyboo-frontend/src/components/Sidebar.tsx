@@ -24,7 +24,7 @@ const navItems: NavItem[] = [
   { icon: Globe, label: 'Global Markets', id: 'globe', href: '/' },
   { icon: Percent, label: 'Fixed Income & Rates', id: 'rates', href: '/fixed-income' },
   { icon: TrendingUp, label: 'FX Macro Desk', id: 'fx', href: '/fx-desk' },
-  { icon: BarChart3, label: 'Analytics', id: 'analytics' },
+  { icon: BarChart3, label: 'Analytics', id: 'analytics', href: '/analytics' },
   { icon: Brain, label: 'AI Models', id: 'ai' },
   { icon: MessageSquare, label: 'Research', id: 'research' },
   { icon: Settings, label: 'Settings', id: 'settings' },
@@ -32,7 +32,10 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const activeFromPath = pathname === '/fixed-income' ? 'rates' : pathname === '/fx-desk' ? 'fx' : 'globe';
+  const activeFromPath =
+    pathname === '/fixed-income' ? 'rates' :
+    pathname === '/fx-desk'      ? 'fx' :
+    pathname === '/analytics'    ? 'analytics' : 'globe';
   const [active, setActive] = useState(activeFromPath);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 

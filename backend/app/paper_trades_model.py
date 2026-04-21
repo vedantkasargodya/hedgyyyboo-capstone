@@ -39,6 +39,7 @@ VALID_DESKS = {DESK_FX, DESK_EQUITY, DESK_RATES}
 # --------- Close reasons ---------
 CLOSE_STOP_LOSS = "STOP_LOSS"
 CLOSE_TAKE_PROFIT = "TAKE_PROFIT"
+CLOSE_TRAIL_STOP = "TRAIL_STOP"
 CLOSE_TIME_STOP = "TIME_STOP"
 CLOSE_SIGNAL_REVERSAL = "SIGNAL_REVERSAL"
 CLOSE_MANUAL = "MANUAL"
@@ -223,12 +224,22 @@ def close_trade(trade_id: int, exit_price: float, reason: str = CLOSE_MANUAL) ->
 
 
 def update_price(trade_id: int, current_price: float) -> dict[str, Any] | None:
+    """Mark-to-market: updates current_price, recomputes PnL, and maintains
+    meta.peak_pnl_pct so the trade engine can evaluate a trailing stop."""
     with SessionLocal() as s:
         t = s.query(PaperTrade).filter(PaperTrade.trade_id == trade_id).first()
         if not t or t.status == "CLOSED":
             return None
         t.current_price = current_price
         t.pnl_pct, t.pnl_usd = _compute_pnl(t.direction, t.entry_price, current_price, t.notional_usd, desk=t.desk)
+        # Track the running peak PnL for a trailing stop.  JSON columns on
+        # SQLite don't auto-detect in-place dict mutation so we reassign.
+        meta = dict(t.meta or {})
+        prev_peak = float(meta.get("peak_pnl_pct") or 0.0)
+        cur_pnl   = float(t.pnl_pct or 0.0)
+        if cur_pnl > prev_peak:
+            meta["peak_pnl_pct"] = round(cur_pnl, 4)
+            t.meta = meta
         s.commit()
         s.refresh(t)
         return _row_to_dict(t)

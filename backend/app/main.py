@@ -921,6 +921,45 @@ async def market_hours_endpoint() -> dict[str, Any]:
     return desk_status()
 
 
+# ============================================================================
+# ML TRADE SCREENER — XGBoost (signal_packet → P(pnl > 0))
+# ============================================================================
+
+@app.get("/api/ml/status")
+async def ml_status_endpoint() -> dict[str, Any]:
+    from app.ml_model import training_status
+    return training_status()
+
+
+@app.post("/api/ml/train")
+async def ml_train_endpoint() -> dict[str, Any]:
+    """Manually retrain the screener.  No-ops (returns reason) if there
+    aren't at least 50 closed trades with signal packets yet."""
+    from app.ml_model import train
+    return await asyncio.to_thread(train)
+
+
+@app.post("/api/ml/score")
+async def ml_score_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    """Score a raw signal_packet.  Used for debugging / UI previews."""
+    from app.ml_model import score
+    packet = payload.get("packet") or {}
+    direction = payload.get("direction") or "LONG"
+    return await asyncio.to_thread(score, packet, direction)
+
+
+@app.post("/api/ml/backfill")
+async def ml_backfill_endpoint(years: int = Query(2, ge=1, le=5)) -> dict[str, Any]:
+    """Walk ~2y of historical data for every watchlist symbol, simulate
+    LONG+SHORT entries on our close rules, persist the outcomes to the
+    historical_samples table.  This is the hedge-fund bootstrap trick —
+    thousands of synthetic training rows from real price history,
+    without look-ahead (signal packet uses only data up to t; label is
+    the forward simulation outcome)."""
+    from app.historical_backfill import run_full_backfill
+    return await asyncio.to_thread(run_full_backfill, years)
+
+
 @app.post("/api/trades/open")
 async def trades_open_endpoint(body: OpenTradeRequest) -> dict[str, Any]:
     """Manually open a position on any desk (button-driven from the UI)."""
