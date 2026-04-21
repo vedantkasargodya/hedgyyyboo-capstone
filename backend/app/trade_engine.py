@@ -68,21 +68,56 @@ def _yf_symbol(desk: str, symbol: str) -> str | None:
 
 
 def fetch_price(desk: str, symbol: str) -> float | None:
+    """Return the latest yfinance close regardless of how stale it is.
+    Used by mark_and_manage so stop-loss / take-profit can fire even when
+    the underlying market goes quiet."""
+    price_and_ts = fetch_price_with_ts(desk, symbol)
+    return price_and_ts[0] if price_and_ts else None
+
+
+def fetch_price_with_ts(desk: str, symbol: str) -> tuple[float, Any] | None:
+    """(price, tick_timestamp) pair — used by the auto-PM opener to reject
+    stale symbols."""
     yf_sym = _yf_symbol(desk, symbol)
     if yf_sym is None:
         return None
     try:
-        # A 2-day intraday pull gives us the most recent trade price; Yahoo
-        # doesn't serve a true real-time quote on the free endpoint.
         hist = yf.Ticker(yf_sym).history(period="2d", interval="1m")
         if hist is not None and not hist.empty:
-            return float(hist["Close"].iloc[-1])
+            return float(hist["Close"].iloc[-1]), hist.index[-1]
         daily = yf.Ticker(yf_sym).history(period="5d")
         if daily is not None and not daily.empty:
-            return float(daily["Close"].iloc[-1])
+            return float(daily["Close"].iloc[-1]), daily.index[-1]
     except Exception as exc:                                       # pragma: no cover
         logger.warning("price fetch failed for %s/%s: %s", desk, symbol, exc)
     return None
+
+
+def fetch_fresh_price(desk: str, symbol: str, max_staleness_minutes: int | None = None) -> float | None:
+    """Live price only if the last tick is fresh.  Used by the auto-PM
+    opener to avoid pouring new trades into symbols the feed no longer
+    updates (e.g. USD/INR outside Asia hours on Yahoo free)."""
+    import pandas as _pd
+    from datetime import datetime as _dt, timezone as _tz
+    got = fetch_price_with_ts(desk, symbol)
+    if got is None:
+        return None
+    price, ts = got
+    cap = max_staleness_minutes if max_staleness_minutes is not None else MAX_PRICE_STALENESS_MINUTES
+    try:
+        t = _pd.Timestamp(ts).to_pydatetime()
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=_tz.utc)
+        age_min = (_dt.now(_tz.utc) - t).total_seconds() / 60
+        if age_min > cap:
+            logger.info(
+                "fetch_fresh_price: skip %s/%s — last tick %.1f min old (> %d)",
+                desk, symbol, age_min, cap,
+            )
+            return None
+    except Exception:
+        pass
+    return price
 
 
 # =====================================================================
@@ -162,9 +197,16 @@ async def mark_and_manage_positions() -> dict[str, Any]:
 
 # Small watchlists per desk.  These are not "hot" picks — they are the
 # instruments the PM is willing to consider each cycle.
-FX_WATCHLIST     = ["EUR/USD", "USD/JPY", "GBP/USD", "USD/INR", "AUD/USD"]
+# FX watchlist — every pair here must have a liquid yfinance quote 24x5.
+# USD/INR was dropped because Yahoo stops ticking it outside Asia hours,
+# which leaves the book stuck at 0% PnL after any late-session open.
+FX_WATCHLIST     = ["EUR/USD", "USD/JPY", "GBP/USD", "AUD/USD", "USD/CHF", "EUR/GBP"]
 EQUITY_WATCHLIST = ["AAPL", "MSFT", "GOOGL", "NVDA", "META", "TSLA", "JPM"]
 RATES_WATCHLIST  = ["UST10Y", "UST5Y", "UST30Y"]
+
+# Auto-PM will not open a position on any symbol whose last yfinance tick
+# is staler than this (its market is effectively closed / illiquid).
+MAX_PRICE_STALENESS_MINUTES = 20
 
 
 def _pick_candidate(open_trades: list[dict[str, Any]]) -> tuple[str, str] | None:
@@ -337,9 +379,12 @@ async def auto_pm_decision_cycle() -> dict[str, Any]:
         }
 
     desk, symbol = candidate
-    price = await asyncio.to_thread(fetch_price, desk, symbol)
+    # Staleness-aware fetch: reject candidates whose last Yahoo tick is too
+    # old — e.g. USD/INR outside Asia hours.  Mark-to-market (below) keeps
+    # using the plain fetch_price so stops still fire on the last print.
+    price = await asyncio.to_thread(fetch_fresh_price, desk, symbol)
     if price is None:
-        return {"skipped": "price_unavailable", "desk": desk, "symbol": symbol}
+        return {"skipped": "stale_or_unavailable_price", "desk": desk, "symbol": symbol}
 
     # Compute the full technical packet (OU / Hurst / GARCH / yield slope etc.)
     from app.signal_packet import build_signal_packet
