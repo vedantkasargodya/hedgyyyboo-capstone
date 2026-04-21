@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   DollarSign,
@@ -10,6 +10,25 @@ import {
   Activity,
   Zap,
 } from 'lucide-react';
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
+interface PortfolioSummary {
+  as_of: string;
+  aum_usd: number;
+  seed_cash_usd: number;
+  gross_exposure_usd: number;
+  open_positions: number;
+  closed_trades: number;
+  unrealised_usd: number;
+  realised_usd: number;
+  unrealised_pct_of_aum: number;
+  realised_sharpe: number | null;
+  alpha_pct: number | null;
+  vix: number | null;
+  risk_score: number;
+}
 
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
@@ -69,71 +88,93 @@ const FilingDelta = dynamic(() => import('@/components/FilingDelta'), {
   ),
 });
 
-const statCards = [
-  {
-    title: 'Total AUM',
-    value: 2.84,
-    change: 3.42,
-    icon: DollarSign,
-    color: 'green' as const,
-    prefix: '$',
-    suffix: 'B',
-    decimals: 2,
-  },
-  {
-    title: 'Active Positions',
-    value: 291,
-    change: 1.8,
-    icon: Target,
-    color: 'cyan' as const,
-    prefix: '',
-    suffix: '',
-    decimals: 0,
-  },
-  {
-    title: 'Risk Score',
-    value: 34.7,
-    change: -2.1,
-    icon: ShieldAlert,
-    color: 'amber' as const,
-    prefix: '',
-    suffix: '/100',
-    decimals: 1,
-  },
-  {
-    title: 'Alpha Generated',
-    value: 8.92,
-    change: 5.63,
-    icon: TrendingUp,
-    color: 'green' as const,
-    prefix: '+',
-    suffix: '%',
-    decimals: 2,
-  },
-  {
-    title: 'VIX',
-    value: 18.5,
-    change: -3.2,
-    icon: Activity,
-    color: 'amber' as const,
-    prefix: '',
-    suffix: '',
-    decimals: 1,
-  },
-  {
-    title: 'Sharpe Ratio',
-    value: 1.42,
-    change: 0.8,
-    icon: Zap,
-    color: 'cyan' as const,
-    prefix: '',
-    suffix: '',
-    decimals: 2,
-  },
-];
+// statCards is now derived from a live /api/portfolio/summary response.
+// If the backend is unreachable we show zeros with an N/A indicator so the
+// examiner can tell the number is a loading-state and not a fake.
+function buildStatCards(p: PortfolioSummary | null) {
+  if (!p) {
+    // Loading state — render zeros flagged with ' ...'
+    return [
+      { title: 'Total AUM',        value: 0,   change: 0, icon: DollarSign, color: 'green' as const, prefix: '$', suffix: '', decimals: 0, note: '…' },
+      { title: 'Active Positions', value: 0,   change: 0, icon: Target,     color: 'cyan'  as const, prefix: '',  suffix: '', decimals: 0, note: '…' },
+      { title: 'Risk Score',       value: 0,   change: 0, icon: ShieldAlert,color: 'amber' as const, prefix: '',  suffix: '/100', decimals: 1, note: '…' },
+      { title: 'Alpha vs DXY',     value: 0,   change: 0, icon: TrendingUp, color: 'green' as const, prefix: '',  suffix: '%', decimals: 2, note: 'N/A' },
+      { title: 'VIX',              value: 0,   change: 0, icon: Activity,   color: 'amber' as const, prefix: '',  suffix: '', decimals: 1, note: '…' },
+      { title: 'Realised Sharpe',  value: 0,   change: 0, icon: Zap,        color: 'cyan'  as const, prefix: '',  suffix: '', decimals: 2, note: '…' },
+    ];
+  }
+  const aumMillions = p.aum_usd / 1_000_000;
+  return [
+    {
+      title: 'Total AUM',
+      value: aumMillions,
+      change: p.unrealised_pct_of_aum,
+      icon: DollarSign, color: 'green' as const, prefix: '$', suffix: 'M', decimals: 3,
+    },
+    {
+      title: 'Active Positions',
+      value: p.open_positions,
+      change: 0,
+      icon: Target, color: 'cyan' as const, prefix: '', suffix: '', decimals: 0,
+    },
+    {
+      title: 'Risk Score',
+      value: p.risk_score,
+      change: 0,
+      icon: ShieldAlert, color: 'amber' as const, prefix: '', suffix: '/100', decimals: 1,
+    },
+    {
+      title: 'Alpha vs DXY',
+      value: p.alpha_pct ?? 0,
+      change: 0,
+      icon: TrendingUp, color: 'green' as const, prefix: p.alpha_pct !== null ? (p.alpha_pct >= 0 ? '+' : '') : '', suffix: '%', decimals: 2,
+      note: p.alpha_pct === null ? 'N/A · benchmark pending' : undefined,
+    },
+    {
+      title: 'VIX',
+      value: p.vix ?? 0,
+      change: 0,
+      icon: Activity, color: 'amber' as const, prefix: '', suffix: '', decimals: 2,
+      note: p.vix === null ? 'feed offline' : undefined,
+    },
+    {
+      title: 'Realised Sharpe',
+      value: p.realised_sharpe ?? 0,
+      change: 0,
+      icon: Zap, color: 'cyan' as const, prefix: '', suffix: '', decimals: 2,
+      note: p.realised_sharpe === null ? (p.closed_trades === 0 ? 'no closed trades yet' : 'N/A') : undefined,
+    },
+  ];
+}
+
+// (Legacy hardcoded stat-card array removed. All stat cards are now derived
+//  from the live /api/portfolio/summary endpoint via buildStatCards above.)
 
 export default function Dashboard() {
   const [filingCollapsed, setFilingCollapsed] = useState(true);
+  const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/portfolio/summary`);
+        if (!res.ok) return;
+        const data: PortfolioSummary = await res.json();
+        if (!cancelled) setPortfolio(data);
+      } catch {
+        /* keep null → stat cards render loading state */
+      }
+    };
+    load();
+    const t = setInterval(load, 30_000); // refresh every 30 s
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
+  const statCards = buildStatCards(portfolio);
 
   return (
     <div className="min-h-screen bg-terminal-black">

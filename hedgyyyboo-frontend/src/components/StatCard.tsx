@@ -13,6 +13,11 @@ interface StatCardProps {
   prefix?: string;
   suffix?: string;
   decimals?: number;
+  /**
+   * Optional short note shown where the %-change badge usually sits.
+   * Used to render "N/A" or "feed offline" when a metric isn't available.
+   */
+  note?: string;
 }
 
 const colorMap = {
@@ -55,6 +60,7 @@ export default function StatCard({
   prefix = '',
   suffix = '',
   decimals = 1,
+  note,
 }: StatCardProps) {
   const [displayValue, setDisplayValue] = useState(0);
   const animationRef = useRef<number | null>(null);
@@ -111,14 +117,20 @@ export default function StatCard({
             {suffix}
           </div>
 
-          <div
-            className={`flex items-center gap-0.5 text-xs font-medium ${
-              isPositive ? 'text-hf-green' : 'text-hf-red'
-            }`}
-          >
-            {isPositive ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-            <span>{Math.abs(change).toFixed(2)}%</span>
-          </div>
+          {note ? (
+            <div className="text-[10px] font-medium text-hf-dim tracking-wider">
+              {note}
+            </div>
+          ) : (
+            <div
+              className={`flex items-center gap-0.5 text-xs font-medium ${
+                isPositive ? 'text-hf-green' : 'text-hf-red'
+              }`}
+            >
+              {isPositive ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+              <span>{Math.abs(change).toFixed(2)}%</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

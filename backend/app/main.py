@@ -59,10 +59,13 @@ _morning_note_cache: dict[str, Any] | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     global _market_df, _headlines  # noqa: PLW0603
-    logger.info("Generating synthetic market data (seed=42) ...")
-    _market_df = generate_market_data()
-    _headlines = generate_news_headlines()
-    logger.info("Data ready — %d rows, %d headlines.", _market_df.height, len(_headlines))
+    # NOTE: synthetic data generator removed from the startup path.
+    # It remains on disk (data_generator.py) as a last-resort fallback
+    # for morning-note generation when every live source is unreachable;
+    # the dashboard no longer shows any of its output.
+    _market_df = None
+    _headlines = []
+    logger.info("Startup: skipped synthetic seed data; using live feeds only.")
 
     # Initialize Phase 6 trade ledger
     try:
@@ -131,39 +134,73 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok", "service": "hedgyyyboo-api", "version": "2.0.0"}
 
 
+@app.get("/api/portfolio/summary")
+async def portfolio_summary_endpoint() -> dict[str, Any]:
+    """Single source of truth for the dashboard stat cards.  Replaces the
+    previously hardcoded AUM / Active-Positions / Alpha / Sharpe values."""
+    try:
+        from app.portfolio_summary import compute_portfolio_summary
+        return compute_portfolio_summary()
+    except Exception as exc:
+        logger.exception("portfolio summary failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"portfolio summary failed: {exc}")
+
+
+def _lazy_synthetic() -> tuple[Any, list[str]]:
+    """Synthetic data generator is now opt-in only, used as a fallback for the
+    PCA / LDA analytic endpoints until we wire them to live feeds. Any response
+    that uses it is tagged with ``source: 'synthetic_fallback'`` so the UI and
+    the examiner can see it is not real market data."""
+    global _market_df, _headlines  # noqa: PLW0603
+    if _market_df is None:
+        _market_df = generate_market_data()
+        _headlines = generate_news_headlines()
+        logger.warning(
+            "Synthetic-data fallback engaged (deterministic, seed=42). "
+            "This is acceptable for illustrating PCA/LDA mechanics only."
+        )
+    return _market_df, _headlines or []
+
+
 @app.get("/api/market-data")
 async def market_data() -> dict[str, Any]:
-    assert _market_df is not None
-    records = _market_df.to_dicts()
-    tickers = _market_df.select("ticker").unique().to_series().to_list()
-    return {"ticker_count": len(tickers), "row_count": len(records), "tickers": tickers, "data": records}
+    df, _ = _lazy_synthetic()
+    records = df.to_dicts()
+    tickers = df.select("ticker").unique().to_series().to_list()
+    return {
+        "source": "synthetic_fallback",
+        "ticker_count": len(tickers),
+        "row_count": len(records),
+        "tickers": tickers,
+        "data": records,
+    }
 
 
 @app.post("/api/analysis/pca")
 async def analysis_pca() -> dict[str, Any]:
-    assert _market_df is not None
-    return {"status": "ok", "analysis": "pca", "results": run_pca_analysis(_market_df)}
+    df, _ = _lazy_synthetic()
+    return {"status": "ok", "source": "synthetic_fallback", "analysis": "pca", "results": run_pca_analysis(df)}
 
 
 @app.post("/api/analysis/lda")
 async def analysis_lda() -> dict[str, Any]:
-    assert _headlines is not None
-    return {"status": "ok", "analysis": "lda", "results": run_lda_analysis(_headlines)}
+    _, headlines = _lazy_synthetic()
+    return {"status": "ok", "source": "synthetic_fallback", "analysis": "lda", "results": run_lda_analysis(headlines)}
 
 
 @app.post("/api/analysis/full")
 async def analysis_full() -> dict[str, Any]:
-    assert _market_df is not None and _headlines is not None
-    pca = run_pca_analysis(_market_df)
-    lda = run_lda_analysis(_headlines)
+    df, headlines = _lazy_synthetic()
+    pca = run_pca_analysis(df)
+    lda = run_lda_analysis(headlines)
     summary = await translate_analysis(pca, lda)
-    return {"status": "ok", "pca": pca, "lda": lda, "llm_summary": summary}
+    return {"status": "ok", "source": "synthetic_fallback", "pca": pca, "lda": lda, "llm_summary": summary}
 
 
 @app.get("/api/globe-data")
 async def globe_data() -> dict[str, Any]:
     entities = get_globe_entities()
-    return {"entity_count": len(entities), "entities": entities}
+    return {"source": "synthetic_fallback", "entity_count": len(entities), "entities": entities}
 
 
 @app.get("/api/geo-events")

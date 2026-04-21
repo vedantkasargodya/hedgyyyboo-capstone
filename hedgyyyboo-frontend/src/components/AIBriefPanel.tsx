@@ -10,13 +10,11 @@ interface AIBriefPanelProps {
   loading?: boolean;
 }
 
-const defaultText = `[MACRO REGIME] Risk-off rotation dominant. VIX term structure inverted — front-month premium elevated 23% above 3M average. Treasury yields compressing as flight-to-quality accelerates across G10.
+const defaultText = `[STATUS] No live brief generated yet.
 
-[ALPHA SIGNAL] PC1 captures 42% of cross-sectional variance, driven by systematic deleveraging. Idiosyncratic alpha concentrated in AI/semiconductor names — NVDA, AVGO showing 2.1 sigma momentum divergence from sector.
+[ACTION] Click RE-ANALYZE to trigger the Gemma-3n-E4B-it LLM. The model will ingest live PCA factors, OU mean-reversion diagnostics, GARCH tail risk, and the last six hours of news headlines, then return grounded commentary across macro regime, alpha signal, positioning and risk alert.
 
-[POSITIONING] Recommend: Reduce net exposure to 35% (from 52%). Increase tail hedges via SPX put spreads (3050/2950, 30DTE). Overweight quality factor — Sharpe differential +0.8 vs momentum.
-
-[RISK ALERT] EM FX carry unwind accelerating. MXN/JPY cross approaching critical support. Position sizing flagged for LATAM equity sleeve.`;
+[NOTE] Generation takes ~7 seconds on the OpenRouter free tier. Subsequent requests are served from the server-side cache until the next manual refresh or the 08:00 IST morning-brief cron.`;
 
 export default function AIBriefPanel({
   text,
