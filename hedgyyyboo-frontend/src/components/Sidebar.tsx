@@ -25,7 +25,7 @@ const navItems: NavItem[] = [
   { icon: TrendingUp, label: 'FX Macro Desk', id: 'fx', href: '/fx-desk' },
   { icon: BarChart3, label: 'Analytics', id: 'analytics', href: '/analytics' },
   { icon: Brain, label: 'AI Models', id: 'ai', href: '/ai-models' },
-  { icon: MessageSquare, label: 'Research', id: 'research' },
+  { icon: MessageSquare, label: 'Research', id: 'research', href: '/research' },
 ];
 
 export default function Sidebar() {
@@ -34,7 +34,8 @@ export default function Sidebar() {
     pathname === '/fixed-income' ? 'rates' :
     pathname === '/fx-desk'      ? 'fx' :
     pathname === '/analytics'    ? 'analytics' :
-    pathname === '/ai-models'    ? 'ai' : 'globe';
+    pathname === '/ai-models'    ? 'ai' :
+    pathname === '/research'     ? 'research' : 'globe';
   const [active, setActive] = useState(activeFromPath);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 

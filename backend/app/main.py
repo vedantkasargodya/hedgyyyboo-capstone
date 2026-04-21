@@ -82,6 +82,13 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     except Exception as exc:
         logger.warning("paper_trades init failed (non-critical): %s", exc)
 
+    # Start AISStream background consumer (no-op if AISSTREAM_KEY missing)
+    try:
+        from app.ais_stream import start_background_consumer
+        start_background_consumer()
+    except Exception as exc:
+        logger.warning("AIS consumer init failed (non-critical): %s", exc)
+
     # Start Phase 4 morning note scheduler
     try:
         from app.scheduler import start_scheduler, stop_scheduler
@@ -966,6 +973,84 @@ async def llm_stats_endpoint() -> dict[str, Any]:
     on backend restart."""
     from app.llm_stats import snapshot
     return snapshot()
+
+
+# ============================================================================
+# RESEARCH / MARINE AIS
+# ============================================================================
+
+@app.get("/api/research/status")
+async def research_status() -> dict[str, Any]:
+    from app.ais_stream import get_status
+    return get_status()
+
+
+@app.get("/api/research/ships")
+async def research_ships(limit: int = Query(800, ge=1, le=5000)) -> dict[str, Any]:
+    from app.ais_stream import get_ships, get_status
+    return {"ships": get_ships(limit=limit), "status": get_status()}
+
+
+@app.get("/api/research/chokepoints")
+async def research_chokepoints() -> dict[str, Any]:
+    from app.ais_stream import get_chokepoint_counts, get_status
+    return {"chokepoints": get_chokepoint_counts(), "status": get_status()}
+
+
+class ResearchChatRequest(BaseModel):
+    query: str
+
+
+@app.post("/api/research/chat")
+async def research_chat(body: ResearchChatRequest) -> dict[str, Any]:
+    """LLM commentary grounded in current ship positions + chokepoint
+    counts + top macro headlines.  Used by the Research page chatbot."""
+    try:
+        from app.rag_brain import build_context_block, _rate_limited_llm_call
+        from app.ais_stream import get_chokepoint_counts, get_status
+        from app.news_feed import fetch_news
+
+        status = get_status()
+        chokepoints = get_chokepoint_counts()
+        try:
+            headlines = fetch_news(category="all", limit=5) or []
+        except Exception:
+            headlines = []
+
+        marine_block = "MARINE TRAFFIC (last ~60 min from AISStream):\n"
+        marine_block += (
+            f"  status: key={status['key_present']} connected={status['connected']} "
+            f"ships_cached={status['ships_cached']}\n"
+        )
+        marine_block += "CHOKEPOINT COUNTS:\n"
+        for cp in chokepoints:
+            marine_block += f"  - {cp['name']:25s}  {cp['count']:4d} ships  — {cp['description']}\n"
+        marine_block += "LATEST HEADLINES:\n"
+        for h in headlines[:5]:
+            marine_block += f"  - {h.get('title', '')}\n"
+
+        system_prompt = (
+            "You are Hedgyyyboo, a senior macro analyst. You use live marine-AIS "
+            "traffic at chokepoints together with the desk's portfolio + headlines "
+            "to answer the PM's question. If you suggest a trade, cite the specific "
+            "number or observation that drives it. Keep answers under 6 sentences. "
+            "Address the PM as 'Vedant'."
+        )
+        user_prompt = (
+            f"{build_context_block()}\n\n"
+            f"{marine_block}\n\n"
+            f"PM's question: {body.query}"
+        )
+        reply = await _rate_limited_llm_call(system_prompt, user_prompt)
+        return {
+            "status": "ok",
+            "reply": reply,
+            "sources": ["portfolio", "ais_marine_traffic", "news_feed"],
+            "chokepoints": chokepoints,
+        }
+    except Exception as exc:
+        logger.exception("research chat failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"research chat failed: {exc}")
 
 
 @app.post("/api/ml/backfill")

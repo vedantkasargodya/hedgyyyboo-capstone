@@ -20,6 +20,8 @@
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-is": "^19.2.5",
+    "react-simple-maps": "^3.0.0",
     "recharts": "^3.8.0",
     "three": "^0.183.2"
   },
