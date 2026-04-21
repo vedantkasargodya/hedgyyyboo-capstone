@@ -1,0 +1,303 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+@import "tailwindcss";
+
+/* ===================== TAILWIND v4 THEME ===================== */
+@theme inline {
+  --color-terminal-black: #0a0a0a;
+  --color-terminal-dark: #111111;
+  --color-terminal-border: #222222;
+  --color-terminal-muted: #333333;
+  --color-hf-green: #00ff00;
+  --color-hf-red: #ff0033;
+  --color-hf-cyan: #00d4ff;
+  --color-hf-amber: #ffaa00;
+  --color-hf-white: #e0e0e0;
+  --color-hf-dim: #666666;
+
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-scanline: scanline-scroll 8s linear infinite;
+  --animate-fade-in: fade-in 0.5s ease-out forwards;
+  --animate-slide-up: slide-up 0.5s ease-out forwards;
+  --animate-pulse-dot: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* ===================== CSS VARIABLES ===================== */
+:root {
+  --terminal-black: #0a0a0a;
+  --terminal-dark: #111111;
+  --terminal-border: #222222;
+  --terminal-muted: #333333;
+  --hf-green: #00ff00;
+  --hf-red: #ff0033;
+  --hf-cyan: #00d4ff;
+  --hf-amber: #ffaa00;
+  --hf-white: #e0e0e0;
+  --hf-dim: #666666;
+}
+
+/* ===================== BASE ===================== */
+/* Note: Tailwind v4 preflight handles box-sizing and margin reset.
+   Do NOT reset padding here — it overrides all Tailwind padding utilities. */
+
+html {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  background-color: var(--terminal-black);
+  color: var(--hf-white);
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===================== SCROLLBAR ===================== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--terminal-black);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--terminal-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--hf-dim);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--terminal-muted) var(--terminal-black);
+}
+
+/* ===================== GLOW UTILITIES ===================== */
+.glow-green {
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.3), 0 0 20px rgba(0, 255, 0, 0.1);
+}
+
+.glow-green-text {
+  text-shadow: 0 0 8px rgba(0, 255, 0, 0.5), 0 0 20px rgba(0, 255, 0, 0.2);
+}
+
+.glow-red {
+  box-shadow: 0 0 8px rgba(255, 0, 51, 0.3), 0 0 20px rgba(255, 0, 51, 0.1);
+}
+
+.glow-red-text {
+  text-shadow: 0 0 8px rgba(255, 0, 51, 0.5), 0 0 20px rgba(255, 0, 51, 0.2);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.3), 0 0 20px rgba(0, 212, 255, 0.1);
+}
+
+.glow-cyan-text {
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.5), 0 0 20px rgba(0, 212, 255, 0.2);
+}
+
+.glow-amber {
+  box-shadow: 0 0 8px rgba(255, 170, 0, 0.3), 0 0 20px rgba(255, 170, 0, 0.1);
+}
+
+/* ===================== SCANLINE OVERLAY ===================== */
+.scanline-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  animation: scanline-scroll 8s linear infinite;
+}
+
+@keyframes scanline-scroll {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 100%;
+  }
+}
+
+/* ===================== GRID BACKGROUND ===================== */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 255, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 0, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ===================== KEYFRAMES ===================== */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 20px rgba(0, 255, 0, 0.6), 0 0 40px rgba(0, 255, 0, 0.2);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.6;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes typewriter-cursor {
+  0%, 100% {
+    border-right-color: var(--hf-green);
+  }
+  50% {
+    border-right-color: transparent;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ===================== ANIMATION UTILITIES ===================== */
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s ease-out forwards;
+}
+
+/* ===================== PANEL STYLES ===================== */
+.panel {
+  background: var(--terminal-dark);
+  border: 1px solid var(--terminal-border);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.panel:hover {
+  border-color: rgba(0, 212, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.08);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hf-dim);
+  border-bottom: 1px solid var(--terminal-border);
+  position: relative;
+}
+
+.panel-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.panel-header.accent-green::before {
+  background: var(--hf-green);
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.4);
+}
+
+.panel-header.accent-cyan::before {
+  background: var(--hf-cyan);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
+}
+
+.panel-header.accent-amber::before {
+  background: var(--hf-amber);
+  box-shadow: 0 0 8px rgba(255, 170, 0, 0.4);
+}
+
+.panel-header.accent-red::before {
+  background: var(--hf-red);
+  box-shadow: 0 0 8px rgba(255, 0, 51, 0.4);
+}
+
+.panel-header.accent-green::before {
+  background: var(--hf-green);
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+}
+
+.panel-header.accent-purple::before {
+  background: #a855f7;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+
+/* ===================== SKELETON LOADING ===================== */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--terminal-border) 25%,
+    var(--terminal-muted) 50%,
+    var(--terminal-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 2px;
+}
