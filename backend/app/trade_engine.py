@@ -168,14 +168,16 @@ RATES_WATCHLIST  = ["UST10Y", "UST5Y", "UST30Y"]
 
 
 def _pick_candidate(open_trades: list[dict[str, Any]]) -> tuple[str, str] | None:
-    """Return a (desk, symbol) pair that we do not already hold open, or None
-    if every watchlist symbol is already in the book.
+    """Return a (desk, symbol) pair that we do not already hold open AND whose
+    desk is currently open for trading.  Returns None if every watchlist
+    symbol is already in the book OR every desk is closed right now.
 
-    Dedup is done by SYMBOL regardless of direction — if we are long AAPL we
-    do not immediately also want to short AAPL on the same desk; that would
-    be a spread trade and we don't support those yet.  We also re-query the
-    full list_trades() inside here so no stale 'held' set can leak through."""
-    from app.paper_trades_model import list_trades  # local import to avoid cycles
+    Dedup is by SYMBOL regardless of direction — if we are long AAPL we do
+    not immediately also want to short AAPL on the same desk; spread trades
+    aren't supported yet.  We re-query list_trades(status='OPEN') inside
+    this function so stale 'held' sets cannot leak through."""
+    from app.paper_trades_model import list_trades
+    from app.market_hours import is_desk_open
     live_open = list_trades(status="OPEN")
     held = {(t["desk"], t["symbol"]) for t in live_open}
 
@@ -186,6 +188,8 @@ def _pick_candidate(open_trades: list[dict[str, Any]]) -> tuple[str, str] | None
     ]
     candidates: list[tuple[str, str]] = []
     for desk, pool in pools:
+        if not is_desk_open(desk):
+            continue   # skip closed desks entirely
         for sym in pool:
             if (desk, sym) not in held:
                 candidates.append((desk, sym))
@@ -242,16 +246,34 @@ async def _llm_decide(desk: str, symbol: str, context: dict[str, Any]) -> dict[s
 
 
 async def auto_pm_decision_cycle() -> dict[str, Any]:
-    """Runs every 15 minutes. Picks one candidate instrument and asks the LLM
-    whether to open a new position. Very conservative — macro cadence."""
+    """Runs every 60 seconds. Picks one candidate instrument from the open
+    desks only, asks the LLM whether to open a new position. Very
+    conservative — macro cadence, not HFT.
+
+    Gating cascade:
+        1. concentration cap — do nothing if already at MAX_OPEN_TRADES
+        2. market hours — skip closed desks entirely
+        3. watchlist dedup — do not re-open a symbol we already hold
+        4. LLM bias — the prompt pushes the model toward HOLD
+    """
+    from app.market_hours import open_desks
     open_trades = list_trades(status="OPEN")
     if len(open_trades) >= MAX_OPEN_TRADES:
         logger.info("auto_pm_decision_cycle: concentration cap (%d) hit — skipping", MAX_OPEN_TRADES)
         return {"skipped": "concentration_cap", "open_count": len(open_trades)}
 
+    live_desks = open_desks()
+    if not live_desks:
+        logger.info("auto_pm_decision_cycle: all desks closed — skipping")
+        return {"skipped": "all_desks_closed", "open_count": len(open_trades)}
+
     candidate = _pick_candidate(open_trades)
     if candidate is None:
-        return {"skipped": "watchlist_fully_held", "open_count": len(open_trades)}
+        return {
+            "skipped": "watchlist_fully_held_or_desks_closed",
+            "open_count": len(open_trades),
+            "open_desks": live_desks,
+        }
 
     desk, symbol = candidate
     price = await asyncio.to_thread(fetch_price, desk, symbol)

@@ -914,13 +914,27 @@ async def trades_list_endpoint(
         raise HTTPException(status_code=500, detail=f"Trades fetch failed: {exc}")
 
 
+@app.get("/api/market-hours")
+async def market_hours_endpoint() -> dict[str, Any]:
+    """Return which desks are currently open for trading."""
+    from app.market_hours import desk_status
+    return desk_status()
+
+
 @app.post("/api/trades/open")
 async def trades_open_endpoint(body: OpenTradeRequest) -> dict[str, Any]:
     """Manually open a position on any desk (button-driven from the UI)."""
     try:
         from app.paper_trades_model import insert_trade
         from app.trade_engine import fetch_price
-        price = await asyncio.to_thread(fetch_price, body.desk.upper(), body.symbol)
+        from app.market_hours import is_desk_open
+        desk_u = body.desk.upper()
+        if not is_desk_open(desk_u):
+            raise HTTPException(
+                status_code=409,
+                detail=f"{desk_u} desk is currently closed. FX trades Sun 17:00 ET → Fri 17:00 ET; equity and rates follow NYSE/cash-UST hours.",
+            )
+        price = await asyncio.to_thread(fetch_price, desk_u, body.symbol)
         if price is None:
             raise HTTPException(
                 status_code=400,
