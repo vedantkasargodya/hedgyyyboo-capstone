@@ -243,7 +243,7 @@ export default function Research() {
             <div style={{ height: 'calc(100% - 20px)', width: '100%' }}>
               <ComposableMap
                 projection="geoEqualEarth"
-                projectionConfig={{ scale: 175, center: [5, 15] }}
+                projectionConfig={{ scale: 240, center: [25, 25] }}
                 style={{ width: '100%', height: '100%' }}
               >
                 <Geographies geography={WORLD_TOPO_URL}>
@@ -313,12 +313,13 @@ export default function Research() {
           </div>
 
           {/* Chokepoint sidebar */}
-          <div className="col-span-4 panel p-3 overflow-auto" style={{ height: 520 }}>
-            <div className="flex items-center mb-2">
+          <div className="col-span-4 panel p-3 flex flex-col" style={{ height: 520 }}>
+            <div className="flex items-center mb-2 flex-shrink-0">
               <Ship size={12} className="text-hf-amber" />
               <span className="ml-1 text-[10px] tracking-widest text-hf-amber">CHOKEPOINT FLOWS</span>
+              <span className="ml-auto text-[8px] text-hf-dim">{chokepoints.length} zones</span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 overflow-y-auto flex-1 pr-1">
               {chokepoints.map((c) => (
                 <div key={c.name} className="bg-terminal-dark/50 rounded p-2">
                   <div className="flex items-center">
