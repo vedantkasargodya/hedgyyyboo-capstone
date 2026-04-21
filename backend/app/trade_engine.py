@@ -198,51 +198,112 @@ def _pick_candidate(open_trades: list[dict[str, Any]]) -> tuple[str, str] | None
     return random.choice(candidates)
 
 
-async def _llm_decide(desk: str, symbol: str, context: dict[str, Any]) -> dict[str, Any]:
-    """Ask Gemma-3n for a BUY / SELL / HOLD + a 1-2 sentence rationale.
-    Falls back to HOLD if the LLM call fails."""
+_LLM_PROMPT_TEMPLATE = """You are a conservative macro portfolio manager at Hedgyyyboo with a small book and strict risk limits.  You must ground every recommendation in the quantitative signals below — do NOT invent numbers.
+
+SIGNAL PACKET (live, just computed from yfinance + scipy):
+{packet}
+
+DESK RISK BUDGET (already enforced by the engine):
+{risk_budget}
+
+HOUSE STYLE
+- BUY only when both (a) at least one signal supports the direction and (b) no stop-out signal is flaring.
+- On FX, prefer mean-reverting entries when Hurst < 0.5 AND OU current_dev_sigmas > +1.5 (sell) or < -1.5 (buy), AND OU is_mean_reverting is true.
+- On EQUITY, prefer trending/momentum entries when Hurst > 0.55 AND recent momentum (ret_20d_pct) is consistent with direction.
+- On RATES, consider slope regime (steepening = long belly, flattening = long long-end).
+- Output HOLD if the signals are conflicting or unconvincing. HOLD is a perfectly valid answer; the book is already allocated.
+
+RESPOND WITH A SINGLE JSON OBJECT AND NOTHING ELSE, using EXACTLY these keys:
+{{
+  "action":       "BUY" | "SELL" | "HOLD",
+  "confidence":   <float 0..1>,
+  "entry_price":  <float|null>,
+  "stop_loss":    <float|null>,
+  "take_profit":  <float|null>,
+  "rationale":    "<1-2 sentences citing the specific signals>"
+}}
+"""
+
+
+async def _llm_decide(
+    desk: str,
+    symbol: str,
+    packet: dict[str, Any],
+    portfolio_context: dict[str, Any],
+) -> dict[str, Any]:
+    """Ask Gemma-3n to decide BUY/SELL/HOLD given the full technical packet.
+    Returns a structured dict with action, levels and rationale."""
+    import os, json as _json, re, httpx
     try:
-        import os, httpx
         api_key = os.getenv("OPENROUTER_API_KEY", "")
         if not api_key or api_key.startswith("your_"):
-            return {"decision": "HOLD", "rationale": "No OpenRouter key; skipping."}
+            return {
+                "action": "HOLD", "rationale": "No OpenRouter key; skipping.",
+                "confidence": 0.0, "entry_price": None, "stop_loss": None, "take_profit": None,
+            }
 
-        prompt = (
-            "You are a conservative macro portfolio manager at Hedgyyyboo. "
-            "You manage a small book with strict risk limits. "
-            "Decide whether to open a position RIGHT NOW on the instrument "
-            "described below. Respond in JSON with exactly two keys: "
-            "`decision` ∈ {BUY, SELL, HOLD} and `rationale` (one sentence).\n\n"
-            f"Desk: {desk}\nSymbol: {symbol}\nContext: {context}\n"
+        risk_budget = {
+            "desk": desk,
+            **{k: v for k, v in DESK_RULES.get(desk, {}).items()},
+            "open_positions_in_book": portfolio_context.get("open_positions_in_book"),
+        }
+        prompt = _LLM_PROMPT_TEMPLATE.format(
+            packet=_json.dumps(packet, indent=2, default=str),
+            risk_budget=_json.dumps(risk_budget, indent=2),
         )
         payload = {
             "model": "google/gemma-3n-e4b-it:free",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 200,
-            "temperature": 0.3,
+            "max_tokens": 450,
+            "temperature": 0.25,
         }
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json=payload,
             )
         if resp.status_code != 200:
-            return {"decision": "HOLD", "rationale": f"LLM {resp.status_code}"}
+            return {
+                "action": "HOLD",
+                "rationale": f"LLM {resp.status_code}: {resp.text[:120]}",
+                "confidence": 0.0, "entry_price": None, "stop_loss": None, "take_profit": None,
+            }
         content = resp.json()["choices"][0]["message"]["content"]
-        import json as _json, re
-        m = re.search(r"\{[^{}]+\}", content, re.S)
+        # Extract the outer-most JSON object from whatever Gemma returns.
+        m = re.search(r"\{[\s\S]*\}", content)
         if not m:
-            return {"decision": "HOLD", "rationale": content.strip()[:160]}
-        parsed = _json.loads(m.group(0))
-        decision = (parsed.get("decision") or "HOLD").upper()
-        if decision not in {"BUY", "SELL", "HOLD"}:
-            decision = "HOLD"
-        rationale = str(parsed.get("rationale") or "").strip()[:240]
-        return {"decision": decision, "rationale": rationale}
-    except Exception as exc:                                      # pragma: no cover
+            return {
+                "action": "HOLD",
+                "rationale": content.strip()[:240],
+                "confidence": 0.0, "entry_price": None, "stop_loss": None, "take_profit": None,
+            }
+        try:
+            parsed = _json.loads(m.group(0))
+        except Exception:
+            return {
+                "action": "HOLD",
+                "rationale": f"parse_failed: {content[:240]}",
+                "confidence": 0.0, "entry_price": None, "stop_loss": None, "take_profit": None,
+            }
+        action = str(parsed.get("action") or parsed.get("decision") or "HOLD").upper()
+        if action not in {"BUY", "SELL", "HOLD"}:
+            action = "HOLD"
+        return {
+            "action": action,
+            "confidence": float(parsed.get("confidence") or 0.0),
+            "entry_price": parsed.get("entry_price"),
+            "stop_loss":   parsed.get("stop_loss"),
+            "take_profit": parsed.get("take_profit"),
+            "rationale":   str(parsed.get("rationale") or "").strip()[:400],
+        }
+    except Exception as exc:
         logger.warning("LLM decision failed: %s", exc)
-        return {"decision": "HOLD", "rationale": f"LLM error: {exc}"}
+        return {
+            "action": "HOLD",
+            "rationale": f"LLM error: {exc}",
+            "confidence": 0.0, "entry_price": None, "stop_loss": None, "take_profit": None,
+        }
 
 
 async def auto_pm_decision_cycle() -> dict[str, Any]:
@@ -280,19 +341,53 @@ async def auto_pm_decision_cycle() -> dict[str, Any]:
     if price is None:
         return {"skipped": "price_unavailable", "desk": desk, "symbol": symbol}
 
-    context = {"last_price": price, "open_positions_across_book": len(open_trades)}
-    decision = await _llm_decide(desk, symbol, context)
-    if decision["decision"] == "HOLD":
-        logger.info("auto_pm_decision_cycle: HOLD on %s/%s — %s", desk, symbol, decision["rationale"][:80])
-        return {"action": "HOLD", "desk": desk, "symbol": symbol, "rationale": decision["rationale"]}
+    # Compute the full technical packet (OU / Hurst / GARCH / yield slope etc.)
+    from app.signal_packet import build_signal_packet
+    packet = await asyncio.to_thread(build_signal_packet, desk, symbol)
 
-    direction = "LONG" if decision["decision"] == "BUY" else "SHORT"
+    # Ask the LLM in JSON mode, carrying the packet in the prompt
+    portfolio_context = {
+        "open_positions_in_book": len(open_trades),
+        "max_open_trades": MAX_OPEN_TRADES,
+    }
+    decision = await _llm_decide(desk, symbol, packet, portfolio_context)
+
+    if decision["action"] == "HOLD":
+        logger.info(
+            "auto_pm HOLD %s/%s (conf %.2f) — %s",
+            desk, symbol, decision.get("confidence") or 0.0,
+            (decision.get("rationale") or "")[:100],
+        )
+        return {
+            "action": "HOLD", "desk": desk, "symbol": symbol,
+            "confidence": decision.get("confidence"),
+            "rationale": decision.get("rationale"),
+            "signal_packet": packet,
+        }
+
+    direction = "LONG" if decision["action"] == "BUY" else "SHORT"
+    # Honour LLM-suggested entry price when it's within 0.5% of the live price;
+    # otherwise use the live price (prevents the LLM from hallucinating levels).
+    entry_px = price
+    llm_entry = decision.get("entry_price")
+    if isinstance(llm_entry, (int, float)) and price > 0:
+        drift = abs(llm_entry - price) / price
+        if drift <= 0.005:
+            entry_px = float(llm_entry)
+
     trade = insert_trade(
         desk=desk,
         symbol=symbol,
         direction=direction,
-        entry_price=price,
-        rationale=decision["rationale"] or f"Auto-PM {decision['decision']}",
-        meta={"source": "auto_pm_cycle"},
+        entry_price=entry_px,
+        rationale=decision.get("rationale") or f"Auto-PM {decision['action']}",
+        meta={
+            "source": "auto_pm_cycle",
+            "confidence": decision.get("confidence"),
+            "llm_stop_loss":   decision.get("stop_loss"),
+            "llm_take_profit": decision.get("take_profit"),
+            "live_price_at_decision": price,
+            "signal_packet": packet,
+        },
     )
-    return {"action": decision["decision"], "trade": trade}
+    return {"action": decision["action"], "trade": trade, "packet_summary_keys": list(packet.keys())}
