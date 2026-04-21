@@ -3,6 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, Sparkles } from 'lucide-react';
 
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
 interface AIBriefPanelProps {
   text?: string;
   timestamp?: string;
@@ -10,71 +13,111 @@ interface AIBriefPanelProps {
   loading?: boolean;
 }
 
-const defaultText = `[STATUS] No live brief generated yet.
-
-[ACTION] Click RE-ANALYZE to trigger the Gemma-3n-E4B-it LLM. The model will ingest live PCA factors, OU mean-reversion diagnostics, GARCH tail risk, and the last six hours of news headlines, then return grounded commentary across macro regime, alpha signal, positioning and risk alert.
-
-[NOTE] Generation takes ~7 seconds on the OpenRouter free tier. Subsequent requests are served from the server-side cache until the next manual refresh or the 08:00 IST morning-brief cron.`;
+const PLACEHOLDER = `[STATUS] No live brief generated yet. Click RE-ANALYZE to ask Gemma-3n to produce a commentary grounded in current portfolio positions, live VIX, top headlines and macro feeds.`;
 
 export default function AIBriefPanel({
-  text,
-  timestamp,
+  text: textProp,
+  timestamp: timestampProp,
   onReanalyze,
   loading = false,
 }: AIBriefPanelProps) {
-  const briefText = text || defaultText;
+  // Local state so the panel can self-fetch when no controlling parent exists.
+  const [briefText, setBriefText] = useState<string>(textProp || PLACEHOLDER);
+  const [briefTimestamp, setBriefTimestamp] = useState<string | undefined>(timestampProp);
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const startTypewriter = useCallback(() => {
+  // Keep in sync with props if a parent ever passes them
+  useEffect(() => {
+    if (textProp) setBriefText(textProp);
+  }, [textProp]);
+  useEffect(() => {
+    if (timestampProp) setBriefTimestamp(timestampProp);
+  }, [timestampProp]);
+
+  // Try to load a cached brief immediately so the user doesn't stare at
+  // placeholder copy while the LLM round-trips.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/ai-brief/cached`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d || !d.text) return;
+        setBriefText(d.text);
+        setBriefTimestamp(d.generated_at);
+      })
+      .catch(() => { /* silent */ });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const startTypewriter = useCallback((fullText: string) => {
     setDisplayedText('');
     setIsTyping(true);
     let index = 0;
-
     const type = () => {
-      if (index < briefText.length) {
-        setDisplayedText(briefText.slice(0, index + 1));
+      if (index < fullText.length) {
+        setDisplayedText(fullText.slice(0, index + 1));
         index++;
-        const delay = briefText[index - 1] === '\n' ? 80 : briefText[index - 1] === '.' ? 40 : 8;
+        const ch = fullText[index - 1];
+        const delay = ch === '\n' ? 80 : ch === '.' ? 40 : 8;
         setTimeout(type, delay);
       } else {
         setIsTyping(false);
       }
     };
-
     type();
-  }, [briefText]);
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(startTypewriter, 500);
+    const timer = setTimeout(() => startTypewriter(briefText), 300);
     return () => clearTimeout(timer);
-  }, [startTypewriter]);
+  }, [briefText, startTypewriter]);
 
-  const handleReanalyze = () => {
+  const handleReanalyze = useCallback(async () => {
     setIsAnalyzing(true);
     setDisplayedText('');
-    if (onReanalyze) {
-      onReanalyze();
-    }
-    setTimeout(() => {
+    setError(null);
+    if (onReanalyze) onReanalyze();
+    try {
+      const res = await fetch(`${API_BASE}/api/ai-brief?refresh=true`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setBriefText(data.text || PLACEHOLDER);
+      setBriefTimestamp(data.generated_at);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      setBriefText(
+        `[STATUS] Failed to generate brief.\n\n[ERROR] ${msg}\n\nCheck that the OpenRouter key in backend/.env is valid.`
+      );
+    } finally {
       setIsAnalyzing(false);
-      startTypewriter();
-    }, 2000);
-  };
+    }
+  }, [onReanalyze]);
 
   const [formattedTime, setFormattedTime] = useState('--:--:--');
   useEffect(() => {
-    const now = timestamp || new Date().toISOString();
-    setFormattedTime(new Date(now).toLocaleString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-      month: 'short',
-      day: 'numeric',
-    }));
-  }, [timestamp]);
+    const now = briefTimestamp || new Date().toISOString();
+    setFormattedTime(
+      new Date(now).toLocaleString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        month: 'short',
+        day: 'numeric',
+      })
+    );
+  }, [briefTimestamp]);
 
   return (
     <div className="panel h-full flex flex-col">
@@ -115,6 +158,11 @@ export default function AIBriefPanel({
           <span className="text-[9px] text-hf-dim">
             GEMMA-3N-E4B-IT // OPENROUTER RAG
           </span>
+          {error && (
+            <span className="text-[9px] text-hf-red ml-auto">
+              error — see brief body
+            </span>
+          )}
         </div>
 
         {/* Terminal-style output */}

@@ -154,6 +154,58 @@ async def portfolio_summary_endpoint() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"portfolio summary failed: {exc}")
 
 
+# In-memory cache for the main dashboard's AI brief so repeated page loads
+# don't burn free-tier quota.  Invalidated on explicit ?refresh=true.
+_ai_brief_cache: dict[str, Any] | None = None
+
+
+_AI_BRIEF_SYSTEM = (
+    "You are Hedgyyyboo, a senior macro portfolio manager at a small fund. "
+    "Write a 4-section brief for the PM covering: "
+    "[MACRO REGIME], [ALPHA SIGNAL], [POSITIONING], [RISK ALERT]. "
+    "Keep each section 1-2 sentences. Ground every claim in the live data "
+    "provided in the prompt. Do not invent prices or rates that are not "
+    "present. Address the PM as 'Vedant'."
+)
+
+
+@app.post("/api/ai-brief")
+async def ai_brief_endpoint(refresh: bool = Query(False)) -> dict[str, Any]:
+    """Generate the live AI PM brief shown on the Main dashboard.
+    Cached in-memory so repeated page loads don't burn free-tier quota."""
+    global _ai_brief_cache
+    if not refresh and _ai_brief_cache is not None:
+        return _ai_brief_cache
+    try:
+        from app.rag_brain import build_context_block, _rate_limited_llm_call
+        context = build_context_block()
+        user_prompt = (
+            f"{context}\n\n"
+            "Write a 4-section brief covering MACRO REGIME, ALPHA SIGNAL, "
+            "POSITIONING, and RISK ALERT.  Base every claim on the data "
+            "above — do not make up numbers that are not present."
+        )
+        text = await _rate_limited_llm_call(_AI_BRIEF_SYSTEM, user_prompt)
+        _ai_brief_cache = {
+            "status": "ok",
+            "text": text,
+            "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "data_sources": ["portfolio", "news_feed"],
+        }
+        return _ai_brief_cache
+    except Exception as exc:
+        logger.exception("AI brief failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"AI brief failed: {exc}")
+
+
+@app.get("/api/ai-brief/cached")
+async def ai_brief_cached() -> dict[str, Any]:
+    """Return the cached brief without generating a new one (fast page loads)."""
+    if _ai_brief_cache is None:
+        return {"status": "empty", "text": None, "generated_at": None}
+    return _ai_brief_cache
+
+
 def _lazy_synthetic() -> tuple[Any, list[str]]:
     """Synthetic data generator is now opt-in only, used as a fallback for the
     PCA / LDA analytic endpoints until we wire them to live feeds. Any response

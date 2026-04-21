@@ -169,8 +169,15 @@ RATES_WATCHLIST  = ["UST10Y", "UST5Y", "UST30Y"]
 
 def _pick_candidate(open_trades: list[dict[str, Any]]) -> tuple[str, str] | None:
     """Return a (desk, symbol) pair that we do not already hold open, or None
-    if every watchlist symbol is already in the book."""
-    held = {(t["desk"], t["symbol"]) for t in open_trades if t["status"] == "OPEN"}
+    if every watchlist symbol is already in the book.
+
+    Dedup is done by SYMBOL regardless of direction — if we are long AAPL we
+    do not immediately also want to short AAPL on the same desk; that would
+    be a spread trade and we don't support those yet.  We also re-query the
+    full list_trades() inside here so no stale 'held' set can leak through."""
+    from app.paper_trades_model import list_trades  # local import to avoid cycles
+    live_open = list_trades(status="OPEN")
+    held = {(t["desk"], t["symbol"]) for t in live_open}
 
     pools = [
         (DESK_FX,     FX_WATCHLIST),
@@ -184,8 +191,6 @@ def _pick_candidate(open_trades: list[dict[str, Any]]) -> tuple[str, str] | None
                 candidates.append((desk, sym))
     if not candidates:
         return None
-    # Deterministic-per-minute randomness so the demo doesn't always pick the
-    # same pair. A proper alpha model replaces this later.
     return random.choice(candidates)
 
 

@@ -4,7 +4,7 @@
     {
       "name": "frontend",
       "runtimeExecutable": "/usr/local/bin/node",
-      "runtimeArgs": ["start-dev.mjs"],
+      "runtimeArgs": ["/tmp/hedgyyyboo-frontend/dev-server.mjs", "3000"],
       "port": 3000,
       "autoPort": false
     }
