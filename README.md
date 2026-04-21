@@ -34,10 +34,11 @@ ln -s "/Users/you/Downloads/untitled folder/hedgyyyboo-frontend" /tmp/hedgyyyboo
 cd /tmp/hedgyyyboo-frontend && npm run dev
 ```
 
-## ⚠️ Keys in this repo
-This repo includes a **live `.env` file** for convenience during development.
-**The `OPENROUTER_API_KEY` committed here will be rotated — do not rely on it.**
-Generate your own free key at https://openrouter.ai/keys.
+## Keys — do your own setup
+Copy `backend/.env.example` to `backend/.env` and fill in your OpenRouter
+API key (free, from https://openrouter.ai/keys). The `.env` file is
+gitignored — never commit it to a public repo, GitHub's secret scanner
+and OpenRouter's own scanner will auto-revoke any key they find there.
 
 ## Documentation
 - Capstone report: `paper/Hedgyyyboo_Capstone_Report_v2.docx`
