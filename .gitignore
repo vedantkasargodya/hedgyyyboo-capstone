@@ -44,6 +44,11 @@ yarn-debug.log*
 *.db-shm
 *.db-wal
 
+# Word / Office lock files when doc is open
+~$*.docx
+~$*.doc
+~$*.xlsx
+
 # Model weights (too big)
 *.safetensors
 *.bin
